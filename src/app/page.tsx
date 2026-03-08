@@ -4,7 +4,6 @@ import { useAudioGenerator, AyahTiming } from "@/hooks/useAudioGenerator";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const QURAN_TEXT_API  = "https://api.alquran.cloud/v1";
-const TAFSIR_API      = "http://api.quran-tafseer.com/tafseer/1"; // التفسير الميسر, id=1
 
 /* ════════════════════════════════════════════════════════════
    RECITER DATA — static, never 404
@@ -40,6 +39,7 @@ const STEPS = [
 ];
 
 interface AyahText { number:number; text:string; numberInSurah:number; }
+interface MaqasidData { ayah:number; meaning:string; maqsad:string; fa2ida:string; asbab?:string; topic:string; }
 
 function toAr(n:number){ return String(n).replace(/\d/g,d=>"٠١٢٣٤٥٦٧٨٩"[+d]); }
 
@@ -226,26 +226,34 @@ function AyahRangePicker({ total,min,max,whole,onMin,onMax,onWhole }:{
 /* ════════ TAFSIR PANEL — التفسير الميسر ════════ */
 
 
+const TAFSIR_CDN = "https://cdn.jsdelivr.net/gh/spa5k/tafsir_api@main/tafsir/ar-tafsir-muyassar";
+
 const tafsirCache: Record<string,string> = {};
 
-function TafsirPanel({ surahNum, ayahNum }:{ surahNum:number; ayahNum:number }) {
+function TafsirPanel({ surahNum, ayahNum, autoLoad=false, onToggle }:{
+  surahNum:number; ayahNum:number; autoLoad?:boolean; onToggle?:(open:boolean)=>void;
+}) {
   const key = `${surahNum}:${ayahNum}`;
   const [text,setText] = useState<string|null>(tafsirCache[key]??null);
   const [loading,setLoading] = useState(false);
   const [open,setOpen] = useState(false);
 
   const load = useCallback(async()=>{
-    if(tafsirCache[key]){ setText(tafsirCache[key]); setOpen(true); return; }
-    setLoading(true); setOpen(true);
+    if(tafsirCache[key]){ setText(tafsirCache[key]); setOpen(true); onToggle?.(true); return; }
+    setLoading(true); setOpen(true); onToggle?.(true);
     try {
-      const res = await fetch(`http://api.quran-tafseer.com/tafseer/1/${surahNum}/${ayahNum}`);
+      const res = await fetch(`${TAFSIR_CDN}/${surahNum}/${ayahNum}.json`);
       if(!res.ok) throw new Error("failed");
       const d = await res.json();
-      tafsirCache[key] = d.text;
-      setText(d.text);
+      const t = d?.text ?? d?.tafsir ?? "—";
+      tafsirCache[key] = t;
+      setText(t);
     } catch { setText("تعذّر تحميل التفسير، يرجى المحاولة لاحقاً."); }
     setLoading(false);
   },[key,surahNum,ayahNum]);
+
+  // auto-trigger on mount and whenever ayahNum changes while tafsir is open
+  useEffect(()=>{ if(autoLoad) load(); },[ayahNum, autoLoad]);
 
   if(!open) return (
     <button className="tf-trigger" onClick={load}>
@@ -257,13 +265,139 @@ function TafsirPanel({ surahNum, ayahNum }:{ surahNum:number; ayahNum:number }) 
     <div className="tf-panel">
       <div className="tf-header">
         <span>📚 التفسير الميسر — آية {toAr(ayahNum)}</span>
-        <button className="tf-close" onClick={()=>setOpen(false)}>✕</button>
+        <button className="tf-close" onClick={()=>{ setOpen(false); onToggle?.(false); }}>✕</button>
       </div>
       {loading
         ? <div className="tf-loading"><span className="mq-spin"/>جارٍ تحميل التفسير...</div>
         : <p className="tf-text">{text}</p>
       }
-      <p className="tf-source">المصدر: التفسير الميسر — نخبة من العلماء</p>
+      <p className="tf-source">التفسير الميسر — نخبة من العلماء · jsDelivr CDN</p>
+    </div>
+  );
+}
+
+/* ════════ MAQASID PANEL — Google Gemini 2.0 Flash (مجاني) ════════ */
+const maqasidCache: Record<string,MaqasidData> = {};
+let _geminiKey = "";
+
+function MaqasidPanel({ surahNum, surahName, ayahNum, ayahText }:{
+  surahNum:number; surahName:string; ayahNum:number; ayahText:string;
+}) {
+  const cacheKey = `${surahNum}:${ayahNum}`;
+  const [data,setData] = useState<MaqasidData|null>(maqasidCache[cacheKey]??null);
+  const [loading,setLoading] = useState(false);
+  const [open,setOpen] = useState(false);
+  const [apiKey,setApiKey] = useState(_geminiKey);
+  const [keyInput,setKeyInput] = useState("");
+  const [keyError,setKeyError] = useState("");
+
+  const doFetch = useCallback(async(k:string)=>{
+    if(maqasidCache[cacheKey]){ setData(maqasidCache[cacheKey]); setOpen(true); return; }
+    setLoading(true); setOpen(true); setKeyError("");
+    const prompt = `أنت عالم إسلامي في التفسير ومقاصد الشريعة. حلّل هذه الآية:
+السورة: ${surahName} (${surahNum}) — الآية ${ayahNum}: ${ayahText}
+أجب بـ JSON فقط، بدون أي نص خارجه:
+{"meaning":"معنى الآية في جملتين","maqsad":"المقصد الشرعي الرئيسي","fa2ida":"الفائدة العملية للمسلم","asbab":"سبب النزول إن وُجد وإلا: لم يُذكر سبب نزول خاص","topic":"الموضوع في كلمتين"}`;
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${k}`,
+        { method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({ contents:[{parts:[{text:prompt}]}],
+            generationConfig:{ responseMimeType:"application/json", maxOutputTokens:600 } }) }
+      );
+      const d = await res.json();
+      if(!res.ok){
+        setKeyError(res.status===400||res.status===403
+          ? "مفتاح API غير صالح — تأكد من نسخه بشكل صحيح"
+          : d?.error?.message??"خطأ في الاتصال");
+        setLoading(false); return;
+      }
+      const raw = d?.candidates?.[0]?.content?.parts?.[0]?.text??"{}";
+      const parsed:MaqasidData = { ayah:ayahNum, ...JSON.parse(raw.replace(/```json|```/g,"").trim()) };
+      maqasidCache[cacheKey] = parsed;
+      setData(parsed);
+    } catch { setKeyError("تعذّر الاتصال — تحقق من اتصال الإنترنت"); }
+    setLoading(false);
+  },[cacheKey,surahName,surahNum,ayahNum,ayahText]);
+
+  const submit = ()=>{
+    const k=keyInput.trim();
+    if(!k){ setKeyError("الرجاء إدخال مفتاح API"); return; }
+    _geminiKey=k; setApiKey(k); setKeyInput(""); doFetch(k);
+  };
+
+  if(!open) return (
+    <button className="mq-trigger" onClick={()=>apiKey?doFetch(apiKey):setOpen(true)}>
+      🌙 المقاصد والفوائد
+    </button>
+  );
+
+  return (
+    <div className="mq-panel">
+      <div className="mq-hdr">
+        <span className="mq-title">🌙 مقاصد الآية {toAr(ayahNum)}</span>
+        <button className="mq-x" onClick={()=>setOpen(false)}>✕</button>
+      </div>
+
+      {/* Key entry */}
+      {!apiKey && !loading && !data && (
+        <div className="mq-keybox">
+          <p className="mq-keyinfo">
+            تستخدم هذه الميزة <strong>Google Gemini</strong> — مجاني تماماً.{" "}
+            احصل على مفتاحك من{" "}
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="mq-a">
+              aistudio.google.com ↗
+            </a>
+          </p>
+          <div className="mq-keyrow">
+            <input className="mq-kinput" type="password" dir="ltr" placeholder="AIzaSy..."
+              value={keyInput} onChange={e=>setKeyInput(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&submit()}/>
+            <button className="mq-kbtn" onClick={submit}>تحليل</button>
+          </div>
+          {keyError&&<p className="mq-kerr">{keyError}</p>}
+        </div>
+      )}
+
+      {loading&&<div className="mq-loading"><span className="spin"/>جارٍ التحليل الشرعي بـ Gemini...</div>}
+
+      {keyError&&apiKey&&!loading&&(
+        <div className="mq-keybox">
+          <p className="mq-kerr">{keyError}</p>
+          <button className="mq-kbtn" style={{marginTop:8}}
+            onClick={()=>{ _geminiKey=""; setApiKey(""); setKeyError(""); }}>
+            تغيير المفتاح
+          </button>
+        </div>
+      )}
+
+      {data&&!loading&&(
+        <div className="mq-body">
+          <div className="mq-row mq-topic">
+            <span className="mq-badge">الموضوع</span>
+            <strong className="mq-topicval">{data.topic}</strong>
+          </div>
+          <div className="mq-row">
+            <span className="mq-badge">المعنى</span>
+            <p className="mq-txt">{data.meaning}</p>
+          </div>
+          <div className="mq-row">
+            <span className="mq-badge mq-b2">المقصد الشرعي</span>
+            <p className="mq-txt">{data.maqsad}</p>
+          </div>
+          <div className="mq-row">
+            <span className="mq-badge mq-b3">الفائدة العملية</span>
+            <p className="mq-txt">{data.fa2ida}</p>
+          </div>
+          {data.asbab&&(
+            <div className="mq-row">
+              <span className="mq-badge mq-b4">سبب النزول</span>
+              <p className="mq-txt">{data.asbab}</p>
+            </div>
+          )}
+          <p className="mq-src">مدعوم بـ Google Gemini 2.0 Flash</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -274,11 +408,10 @@ function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick }:
   activeAyah:number|null; onAyahClick?:(n:number)=>void;
 }) {
   const [selectedAyah,setSelectedAyah] = useState<number|null>(null);
+  const [tafsirWasOpen,setTafsirWasOpen] = useState(false);
   const activeRef = useRef<HTMLSpanElement|null>(null);
 
   useEffect(()=>{ activeRef.current?.scrollIntoView({behavior:"smooth",block:"nearest"}); },[activeAyah]);
-
-
 
   if(!ayahs.length) return null;
 
@@ -313,7 +446,15 @@ function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick }:
             <button className="ayah-drawer-close" onClick={()=>setSelectedAyah(null)}>✕</button>
           </div>
           <div className="ayah-actions">
-            <TafsirPanel surahNum={surahNum} ayahNum={selectedAyah}/>
+            <TafsirPanel
+              key={selectedAyah}
+              surahNum={surahNum} ayahNum={selectedAyah}
+              autoLoad={tafsirWasOpen}
+              onToggle={setTafsirWasOpen}
+            />
+            <MaqasidPanel surahNum={surahNum} surahName={surahName}
+              ayahNum={selectedAyah}
+              ayahText={ayahs.find(a=>a.numberInSurah===selectedAyah)?.text??""}/>
           </div>
         </div>
       )}
@@ -718,7 +859,7 @@ export default function Home() {
         <p className="footer-sub">
           النص القرآني من <span className="fl">alquran.cloud</span> ·
           الصوت من <span className="fl">everyayah.com</span> ·
-          التفسير الميسر من <span className="fl">quran-tafseer.com</span>
+          التفسير الميسر من <span className="fl">jsDelivr CDN</span>
         </p>
         <p className="footer-bismillah">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
       </footer>
@@ -884,7 +1025,7 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.6)}}
 .qloading{display:flex;align-items:center;gap:10px;font-size:.82rem;color:var(--textD);padding:30px 0}
 .qtext-hint{font-size:.63rem;color:var(--textDD);text-align:center;padding:6px;border-top:1px solid var(--border)}
-.qtext-outer{flex:1;display:flex;flex-direction:column;gap:0;overflow:hidden}
+.qtext-outer{flex:1;display:flex;flex-direction:column;gap:0;overflow:visible}
 .qtext-wrap{flex:1;overflow-y:auto;max-height:360px;padding-left:4px}
 .qtext{font-family:var(--fq);font-size:1.55rem;line-height:2.7;text-align:right;direction:rtl;color:var(--text);word-break:break-word;padding:4px 2px}
 .light .qtext{color:#1e1608}
@@ -923,6 +1064,35 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 /* SPINNER (used by tafsir loading) */
 .mq-spin{display:inline-block;width:14px;height:14px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--gold);animation:spin .8s linear infinite;margin-inline-end:8px;flex-shrink:0;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+/* MAQASID */
+.mq-trigger{background:linear-gradient(135deg,rgba(201,168,76,.1),rgba(201,168,76,.05));border:1px solid rgba(201,168,76,.28);border-radius:8px;padding:7px 14px;color:var(--gold);font-family:var(--ff);font-size:.78rem;cursor:pointer;transition:all .2s}
+.mq-trigger:hover{background:rgba(201,168,76,.16);box-shadow:0 3px 12px rgba(201,168,76,.15)}
+.mq-panel{background:var(--bg2);border:1px solid rgba(201,168,76,.2);border-radius:10px;overflow:hidden;width:100%;margin-top:4px;box-shadow:0 4px 20px rgba(201,168,76,.08)}
+.mq-hdr{display:flex;justify-content:space-between;align-items:center;padding:9px 14px;background:linear-gradient(90deg,rgba(201,168,76,.1),transparent);border-bottom:1px solid rgba(201,168,76,.12)}
+.mq-title{font-size:.78rem;color:var(--gold2);font-weight:700}.light .mq-title{color:#7a5018}
+.mq-x{background:none;border:none;color:var(--textD);cursor:pointer;font-size:.72rem;padding:2px 6px;border-radius:4px;transition:all .15s}
+.mq-x:hover{color:var(--text);background:rgba(201,168,76,.1)}
+.mq-keybox{padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.mq-keyinfo{font-size:.76rem;line-height:1.65;color:var(--textD)}.mq-keyinfo strong{color:var(--text)}
+.mq-a{color:var(--teal3);text-decoration:none}.mq-a:hover{text-decoration:underline}
+.mq-keyrow{display:flex;gap:6px}
+.mq-kinput{flex:1;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:.8rem;outline:none;font-family:monospace;transition:border-color .2s}
+.mq-kinput:focus{border-color:var(--border2)}.mq-kinput::placeholder{color:var(--textDD)}
+.mq-kbtn{background:linear-gradient(135deg,var(--goldD),var(--gold));border:none;border-radius:8px;color:#0c1020;font-family:var(--ff);font-size:.8rem;font-weight:700;padding:8px 14px;cursor:pointer;white-space:nowrap;transition:all .2s}
+.mq-kbtn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(201,168,76,.3)}
+.mq-kerr{font-size:.72rem;color:#e07060;background:rgba(224,112,96,.08);border:1px solid rgba(224,112,96,.2);border-radius:6px;padding:6px 10px}
+.mq-loading{display:flex;align-items:center;font-size:.8rem;color:var(--textD);padding:14px;gap:8px}
+.mq-body{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.mq-row{display:flex;flex-direction:column;gap:4px}
+.mq-topic{flex-direction:row;align-items:center;gap:8px}
+.mq-topicval{font-size:.88rem;color:var(--gold2)}.light .mq-topicval{color:#7a5018}
+.mq-badge{font-size:.62rem;font-weight:700;padding:2px 9px;border-radius:20px;background:rgba(201,168,76,.1);color:var(--gold);border:1px solid rgba(201,168,76,.2);flex-shrink:0;white-space:nowrap}
+.mq-b2{background:rgba(42,157,143,.1);color:var(--teal3);border-color:rgba(42,157,143,.2)}
+.mq-b3{background:rgba(107,80,180,.12);color:#a07adf;border-color:rgba(107,80,180,.2)}
+.mq-b4{background:rgba(201,115,76,.1);color:#d4944c;border-color:rgba(201,115,76,.2)}
+.mq-txt{font-size:.84rem;line-height:1.75;color:var(--text);direction:rtl}.light .mq-txt{color:#1e1608}
+.mq-src{font-size:.6rem;color:var(--textDD);text-align:center;margin-top:2px;border-top:1px solid var(--border);padding-top:6px}
 
 /* PLAYER */
 .player-col{padding:20px 24px;display:flex;flex-direction:column;gap:12px}
