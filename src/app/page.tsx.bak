@@ -1,0 +1,986 @@
+"use client";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useAudioGenerator, AyahTiming } from "@/hooks/useAudioGenerator";
+
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const QURAN_TEXT_API = "https://api.alquran.cloud/v1";
+
+/* ── Reciter metadata ── */
+const META: Record<number, { nameAr: string; style: string; photo: string }> = {
+  1:  { nameAr:"عبد الباسط عبد الصمد", style:"مرتّل", photo:"https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Abdul_Basit_Abdus_Samad.jpg/200px-Abdul_Basit_Abdus_Samad.jpg" },
+  2:  { nameAr:"عبد الباسط عبد الصمد", style:"مجوّد",  photo:"https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Abdul_Basit_Abdus_Samad.jpg/200px-Abdul_Basit_Abdus_Samad.jpg" },
+  3:  { nameAr:"عبد الرحمن السديس",    style:"مرتّل", photo:"https://upload.wikimedia.org/wikipedia/commons/thumb/6/6b/Abdul_Rahman_Al-Sudais.jpg/200px-Abdul_Rahman_Al-Sudais.jpg" },
+  4:  { nameAr:"أبو بكر الشاطري",      style:"مرتّل", photo:"https://upload.wikimedia.org/wikipedia/commons/thumb/a/a0/Abu_Bakr_al-Shatri.jpg/200px-Abu_Bakr_al-Shatri.jpg" },
+  5:  { nameAr:"هاني الرفاعي",         style:"مرتّل", photo:"" },
+  6:  { nameAr:"محمود خليل الحصري",    style:"مرتّل", photo:"https://upload.wikimedia.org/wikipedia/commons/thumb/b/b7/Mahmoud_Khalil_Al-Husary.jpg/200px-Mahmoud_Khalil_Al-Husary.jpg" },
+  7:  { nameAr:"مشاري راشد العفاسي",   style:"مرتّل", photo:"https://upload.wikimedia.org/wikipedia/commons/thumb/9/96/Mishary_Rashid_Alafasy.jpg/200px-Mishary_Rashid_Alafasy.jpg" },
+  8:  { nameAr:"محمد صديق المنشاوي",   style:"مجوّد",  photo:"https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Muhammed_Siddiq_Al-Minshawi.jpg/200px-Muhammed_Siddiq_Al-Minshawi.jpg" },
+  9:  { nameAr:"محمد صديق المنشاوي",   style:"مرتّل", photo:"https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Muhammed_Siddiq_Al-Minshawi.jpg/200px-Muhammed_Siddiq_Al-Minshawi.jpg" },
+  10: { nameAr:"سعود الشريم",          style:"مرتّل", photo:"https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/Saud_Al-Shuraim.jpg/200px-Saud_Al-Shuraim.jpg" },
+  11: { nameAr:"ماهر المعيقلي",        style:"مرتّل", photo:"https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/Maher_Al-Muaiqly.jpg/200px-Maher_Al-Muaiqly.jpg" },
+  12: { nameAr:"محمود خليل الحصري",    style:"معلّم",  photo:"https://upload.wikimedia.org/wikipedia/commons/thumb/b/b7/Mahmoud_Khalil_Al-Husary.jpg/200px-Mahmoud_Khalil_Al-Husary.jpg" },
+  13: { nameAr:"سعد الغامدي",          style:"مرتّل", photo:"https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/Saad_Al-Ghamdi.jpg/200px-Saad_Al-Ghamdi.jpg" },
+  14: { nameAr:"ياسر الدوسري",         style:"مرتّل", photo:"https://upload.wikimedia.org/wikipedia/commons/thumb/9/90/Yasser_Al-Dosari.jpg/200px-Yasser_Al-Dosari.jpg" },
+  15: { nameAr:"ناصر القطامي",         style:"مرتّل", photo:"" },
+};
+const ACOLORS = ["#c9a84c","#2a9d8f","#e76f51","#457b9d","#6d6875","#f4a261","#9b5de5","#c9a84c","#e63946","#06d6a0","#118ab2","#ffd166"];
+const AC = (id: number) => ACOLORS[id % ACOLORS.length];
+
+const STEPS = [
+  { id: 1, ar: "القارئ",    icon: "🎙" },
+  { id: 2, ar: "السورة",   icon: "📖" },
+  { id: 3, ar: "الآيات",   icon: "🔢" },
+  { id: 4, ar: "الاستماع", icon: "🎧" },
+];
+
+interface AyahText { number: number; text: string; numberInSurah: number; }
+
+function toAr(n: number) { return String(n).replace(/\d/g, d => "٠١٢٣٤٥٦٧٨٩"[+d]); }
+
+/* ── Stars (dark mode only) ── */
+function Stars({ dark }: { dark: boolean }) {
+  const [stars, setStars] = useState<any[]>([]);
+  useEffect(() => {
+    setStars(Array.from({ length: 55 }, (_, i) => ({
+      id: i, top: `${Math.random() * 100}%`, left: `${Math.random() * 100}%`,
+      w: Math.random() * 2 + 0.5, dur: `${Math.random() * 4 + 2}s`, delay: `${Math.random() * 8}s`,
+    })));
+  }, []);
+  if (!dark) return null;
+  return (
+    <div className="stars">
+      {stars.map(s => (
+        <div key={s.id} className="star"
+          style={{ top: s.top, left: s.left, width: s.w, height: s.w, "--dur": s.dur, "--delay": s.delay } as any} />
+      ))}
+    </div>
+  );
+}
+
+/* ── Step Bar ── */
+function StepBar({ current, maxReached }: { current: number; maxReached: number }) {
+  return (
+    <div className="stepbar">
+      {STEPS.map((s, i) => {
+        const done = maxReached > s.id, active = current === s.id;
+        return (
+          <div key={s.id} className="sb-item">
+            {/* line goes LEFT of circle in RTL — connects to previous item */}
+            {i > 0 && <div className={`sb-line${done || active ? " lit" : ""}`} />}
+            <div className={`sb-dot${active ? " active" : done ? " done" : ""}`}>
+              {done ? "✓" : s.icon}
+            </div>
+            <span className={`sb-lbl${active ? " active" : done ? " done" : s.id > maxReached ? " dim" : ""}`}>
+              {s.ar}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── Reciter Card ── */
+function ReciterCard({ r, selected, onClick }: { r: any; selected: boolean; onClick: () => void }) {
+  const m = META[r.id]; const [err, setErr] = useState(false);
+  return (
+    <div className={`rc${selected ? " sel" : ""}`} onClick={onClick}>
+      {m?.photo && !err
+        ? <img src={m.photo} alt={m.nameAr} className="rc-img" onError={() => setErr(true)} />
+        : <div className="rc-av" style={{ background: `linear-gradient(135deg,${AC(r.id)}44,transparent)` }}>
+            <span style={{ color: AC(r.id) }}>{(m?.nameAr ?? "؟")[0]}</span>
+          </div>
+      }
+      <div className="rc-name">{m?.nameAr ?? r.reciter_name}</div>
+      <div className="rc-style">{m?.style ?? "مرتّل"}</div>
+      {selected && <div className="rc-check">✓</div>}
+    </div>
+  );
+}
+
+/* ── Ayah Range Visualizer ── */
+function AyahViz({ total, min, max }: { total: number; min: number; max: number }) {
+  if (!total || !min || !max) return null;
+  const cnt = max - min + 1, pL = ((min - 1) / total) * 100, pW = (cnt / total) * 100;
+  const dots = Math.min(total, 120), dMin = Math.floor(((min - 1) / total) * dots), dMax = Math.floor((max / total) * dots);
+  return (
+    <div className="aviz">
+      <div className="aviz-bar">
+        <div className="aviz-fill" style={{ left: `${pL}%`, width: `${pW}%` }} />
+        <span className="aviz-lbl">الآيات {toAr(min)}–{toAr(max)} ({toAr(cnt)} من {toAr(total)})</span>
+      </div>
+      <div className="aviz-dots">
+        {Array.from({ length: dots }, (_, i) => (
+          <div key={i} className={`adot${i >= dMin && i < dMax ? " in" : ""}`} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Quran Text Panel ── */
+function QuranTextPanel({ ayahs, activeAyah, onAyahClick }: {
+  ayahs: AyahText[]; activeAyah: number | null; onAyahClick?: (n: number) => void;
+}) {
+  const activeRef = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [activeAyah]);
+  if (!ayahs.length) return null;
+  return (
+    <div className="qtext-wrap">
+      <p className="qtext">
+        {ayahs.map(a => (
+          <span key={a.numberInSurah}
+            ref={a.numberInSurah === activeAyah ? activeRef : null}
+            className={`qayah${a.numberInSurah === activeAyah ? " active" : ""}`}
+            onClick={() => onAyahClick?.(a.numberInSurah)}
+          >
+            {a.text}
+            <span className="qnum">{String.fromCodePoint(0x06DD)}{toAr(a.numberInSurah)}</span>
+            {" "}
+          </span>
+        ))}
+      </p>
+    </div>
+  );
+}
+
+/* ── Synchronized Audio Player ── */
+function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah }: {
+  url: string; filename: string; sizeKb: number | null;
+  timings: AyahTiming[];
+  onAyahChange: (n: number | null) => void;
+  onSeekToAyah: (seekFn: (ayah: number) => void) => void;
+}) {
+  const aRef  = useRef<HTMLAudioElement | null>(null);
+  const cvRef = useRef<HTMLCanvasElement | null>(null);
+  const bars  = useRef<number[]>([]);
+  const [playing, setPlaying] = useState(false);
+  const [cur, setCur] = useState(0);
+  const [dur, setDur] = useState(0);
+  const [vol, setVol] = useState(1);
+  const [curIdx, setCurIdx] = useState(0); // index into timings[]
+
+  /* Waveform draw */
+  const draw = useCallback((pct: number) => {
+    const cv = cvRef.current; if (!cv) return;
+    const ctx = cv.getContext("2d"); if (!ctx) return;
+    const W = cv.offsetWidth, H = cv.offsetHeight; cv.width = W; cv.height = H;
+    ctx.clearRect(0, 0, W, H);
+    const B = bars.current, bw = W / B.length - 1, pi = Math.floor(pct * B.length);
+    B.forEach((h, i) => {
+      const x = i * (bw + 1), bh = h * H * .8, y = (H - bh) / 2, r = 2;
+      ctx.fillStyle = i <= pi
+        ? `rgba(201,168,76,${.55 + h * .45})`
+        : `rgba(120,140,160,${.18 + h * .15})`;
+      ctx.beginPath();
+      ctx.moveTo(x+r,y); ctx.lineTo(x+bw-r,y); ctx.quadraticCurveTo(x+bw,y,x+bw,y+r);
+      ctx.lineTo(x+bw,y+bh-r); ctx.quadraticCurveTo(x+bw,y+bh,x+bw-r,y+bh);
+      ctx.lineTo(x+r,y+bh); ctx.quadraticCurveTo(x,y+bh,x,y+bh-r);
+      ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+      ctx.closePath(); ctx.fill();
+    });
+    /* Draw ayah boundary markers from real timings */
+    if (timings.length > 1 && dur > 0) {
+      timings.slice(1).forEach(t => {
+        const mx = Math.floor((t.start_ms / 1000 / dur) * W);
+        ctx.strokeStyle = "rgba(201,168,76,0.35)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(mx, 3); ctx.lineTo(mx, H - 3); ctx.stroke();
+        ctx.setLineDash([]);
+      });
+    }
+  }, [timings, dur]);
+
+  useEffect(() => {
+    bars.current = Array.from({ length: 120 }, () => 0.15 + Math.random() * .85);
+    setTimeout(() => draw(0), 60);
+  }, [url]);
+
+  /* Find active ayah from current time using exact timings */
+  const getActiveIdx = useCallback((currentSec: number) => {
+    if (!timings.length) return 0;
+    const ms = currentSec * 1000;
+    for (let i = timings.length - 1; i >= 0; i--) {
+      if (ms >= timings[i].start_ms) return i;
+    }
+    return 0;
+  }, [timings]);
+
+  useEffect(() => {
+    const a = new Audio(url); aRef.current = a; a.volume = vol;
+    a.onloadedmetadata = () => setDur(a.duration);
+    a.ontimeupdate = () => {
+      const t = a.currentTime, d = a.duration || 1;
+      setCur(t);
+      draw(t / d);
+      /* Exact sync: find which ayah bracket contains current time */
+      const idx = getActiveIdx(t);
+      if (idx !== curIdx) {
+        setCurIdx(idx);
+        onAyahChange(timings[idx]?.ayah ?? null);
+      }
+    };
+    a.onended = () => { setPlaying(false); setCur(0); draw(0); onAyahChange(null); };
+    return () => { a.pause(); a.src = ""; };
+  }, [url, timings]);
+
+  /* Expose seekToAyah to parent via callback */
+  useEffect(() => {
+    onSeekToAyah((ayahNum: number) => {
+      const a = aRef.current; if (!a) return;
+      const t = timings.find(t => t.ayah === ayahNum);
+      if (t) {
+        a.currentTime = t.start_ms / 1000;
+        if (!playing) { a.play(); setPlaying(true); }
+      }
+    });
+  }, [timings, playing]);
+
+  const toggle = () => { const a = aRef.current; if (!a) return; playing ? a.pause() : a.play(); setPlaying(!playing); };
+  const skip = (s: number) => { const a = aRef.current; if (a) a.currentTime = Math.max(0, Math.min(a.duration, a.currentTime + s)); };
+  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const a = aRef.current; if (!a || !a.duration) return;
+    const rc = e.currentTarget.getBoundingClientRect();
+    a.currentTime = ((e.clientX - rc.left) / rc.width) * a.duration;
+  };
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, "0")}`;
+  const pct = dur > 0 ? (cur / dur) * 100 : 0;
+
+  return (
+    <div className="splayer">
+      <div className="sp-header">
+        <span className="sp-fname">{filename}</span>
+        {sizeKb && <span className="sp-size">{sizeKb} KB</span>}
+      </div>
+      <div className="sp-wf" onClick={seek}>
+        <div className="sp-prog" style={{ width: `${pct}%` }} />
+        <canvas ref={cvRef} className="sp-cv" />
+        <div className="sp-cur" style={{ left: `${pct}%` }} />
+      </div>
+      <div className="sp-time"><span>{fmt(cur)}</span><span>{fmt(dur)}</span></div>
+      <div className="sp-ctrl">
+        <button className="sp-skip" onClick={() => skip(-10)}>«&nbsp;١٠</button>
+        <button className="sp-play" onClick={toggle}>{playing ? "⏸" : "▶"}</button>
+        <button className="sp-skip" onClick={() => skip(10)}>١٠&nbsp;»</button>
+      </div>
+      <div className="sp-vol">
+        <span>🔊</span>
+        <input type="range" min={0} max={1} step={0.05} value={vol} className="sp-vs"
+          onChange={e => { setVol(+e.target.value); if (aRef.current) aRef.current.volume = +e.target.value; }} />
+      </div>
+      {timings.length > 1 && (
+        <div className="sp-jumps">
+          <span className="sp-jumplbl">انتقل إلى آية:</span>
+          <div className="sp-jumpbtns">
+            {timings.map((t, i) => (
+              <button key={t.ayah}
+                className={`sp-jbtn${i === curIdx ? " active" : ""}`}
+                onClick={() => {
+                  const a = aRef.current; if (!a) return;
+                  a.currentTime = t.start_ms / 1000;
+                  if (!playing) { a.play(); setPlaying(true); }
+                }}>
+                {toAr(t.ayah)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <a href={url} download={filename} className="sp-dl">⬇ تحميل الملف الصوتي</a>
+    </div>
+  );
+}
+
+/* ── Progress ── */
+function ProgressDots({ gen }: { gen: ReturnType<typeof useAudioGenerator> }) {
+  const { status, total, downloaded, fallbacks, failed, ayahs, percent } = gen;
+  const AR: Record<string, string> = {
+    connecting:"جارٍ الاتصال...", resolving:"جارٍ التحليل...",
+    downloading:`جارٍ التحميل... ${percent}%`, merging:"جارٍ دمج الصوت...",
+  };
+  const isDone = status === "done", isErr = status === "error";
+  return (
+    <div className="pdots">
+      <div className="pd-head">
+        <div className={`pd-st${isDone ? " done" : isErr ? " err" : ""}`}>
+          {!isDone && !isErr && <span className="pd-pulse" />}
+          {isDone ? "✓ اكتمل!" : isErr ? "✕ خطأ" : AR[status] ?? status}
+        </div>
+        {total > 0 && !isDone && <span className="pd-cnt">{downloaded}/{total}</span>}
+      </div>
+      {!isErr && (
+        <div className="pd-bar-wrap">
+          <div className={`pd-bar${isDone ? " done" : ""}`}
+            style={{ width: `${isDone ? 100 : status === "merging" ? 95 : percent}%` }} />
+        </div>
+      )}
+      {ayahs.length > 0 && (
+        <div className="pd-grid">
+          {ayahs.map(a => <div key={a.index} className={`pdot ${a.status}`} title={`آية ${a.ayah}`} />)}
+        </div>
+      )}
+      {ayahs.length > 0 && (
+        <div className="pd-leg">
+          <span><i className="ld ok" />موفق</span>
+          <span><i className="ld fallback" />بديل</span>
+          <span><i className="ld failed" />فشل</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   MAIN PAGE
+══════════════════════════════════════════════════════════ */
+export default function Home() {
+  const [dark, setDark] = useState(true);
+  const [reciters, setReciters] = useState<any[]>([]);
+  const [surahs, setSurahs] = useState<any[]>([]);
+  const [ayahTexts, setAyahTexts] = useState<AyahText[]>([]);
+  const [loadingText, setLoadingText] = useState(false);
+
+  const [step, setStep] = useState(1);
+  const [maxStep, setMaxStep] = useState(1);
+  const [dir, setDir] = useState<"fwd" | "bwd">("fwd");
+  const [selR, setSelR] = useState<number | null>(null);
+  const [selS, setSelS] = useState<any | null>(null);
+  const [whole, setWhole] = useState(true);
+  const [aMin, setAMin] = useState(1);
+  const [aMax, setAMax] = useState(7);
+  const [search, setSearch] = useState("");
+  const [activeAyah, setActiveAyah] = useState<number | null>(null);
+  const seekRef = useRef<((n: number) => void) | null>(null);
+
+  const gen = useAudioGenerator();
+
+  useEffect(() => {
+    fetch(`${API}/recitations`).then(r => r.json()).then(setReciters).catch(() => {});
+    fetch(`${API}/surahs`).then(r => r.json()).then(setSurahs).catch(() => {});
+  }, []);
+
+  useEffect(() => { if (selS) { setAMin(1); setAMax(Math.min(7, selS.verses_count)); } }, [selS]);
+
+  const fetchText = useCallback(async (surahNum: number, min: number, max: number) => {
+    setLoadingText(true);
+    try {
+      const res = await fetch(`${QURAN_TEXT_API}/surah/${surahNum}/quran-uthmani`);
+      const data = await res.json();
+      const all: AyahText[] = data.data.ayahs;
+      setAyahTexts(all.filter(a => a.numberInSurah >= min && a.numberInSurah <= max));
+    } catch { setAyahTexts([]); }
+    finally { setLoadingText(false); }
+  }, []);
+
+  const goTo = (s: number) => {
+    setDir(s < step ? "bwd" : "fwd");
+    setStep(s);
+    if (s > maxStep) setMaxStep(s);
+  };
+
+  const confirmRange = () => {
+    const min = whole ? 1 : aMin, max = whole ? (selS?.verses_count ?? 1) : aMax;
+    fetchText(selS!.id, min, max);
+    goTo(4);
+  };
+
+  const handleGenerate = () => {
+    const min = whole ? 1 : aMin, max = whole ? (selS?.verses_count ?? 1) : aMax;
+    setActiveAyah(min);
+    gen.generate({ recitation_id: selR!, surah_number: selS!.id, whole_surah: whole,
+      ayah_min: whole ? undefined : aMin, ayah_max: whole ? undefined : aMax }).catch(() => {});
+  };
+
+  const handleReset = () => {
+    gen.reset(); setStep(1); setMaxStep(1);
+    setSelR(null); setSelS(null); setAyahTexts([]); setActiveAyah(null); setSearch("");
+  };
+
+  const filtered = useMemo(() =>
+    surahs.filter(s => s.name_arabic.includes(search) ||
+      s.name_simple.toLowerCase().includes(search.toLowerCase()) ||
+      String(s.id).includes(search)), [surahs, search]);
+
+  const dMin = whole ? 1 : aMin, dMax = whole ? (selS?.verses_count ?? 1) : aMax;
+
+  /* Click on ayah text → seek player */
+  const handleAyahClick = (n: number) => {
+    setActiveAyah(n);
+    seekRef.current?.(n);
+  };
+
+  return (
+    <div className={`app${dark ? " dark" : " light"}`}>
+      <Stars dark={dark} />
+      {dark && <div className="geo" />}
+
+      {/* ── Header ── */}
+      <header className="hdr">
+        <div className="hdr-left">
+          {/* Theme toggle */}
+          <button className="theme-btn" onClick={() => setDark(!dark)} title="تبديل المظهر">
+            {dark ? "☀️" : "🌙"}
+          </button>
+        </div>
+        <div className="hdr-center">
+          <div className="hdr-moon">{dark ? "☽" : "✦"}</div>
+          <h1 className="hdr-title">مُصحف الصوت</h1>
+          <p className="hdr-sub">استمع إلى القرآن الكريم بأصوات كبار القراء</p>
+        </div>
+        <div className="hdr-right" />
+      </header>
+
+      {/* ── Step bar ── */}
+      <div className="sb-wrap">
+        <StepBar current={step} maxReached={maxStep} />
+      </div>
+
+      {/* ── Wizard ── */}
+      <main className="wizard">
+
+        {/* STEP 1 */}
+        {step === 1 && (
+          <div className={`wcard slide-${dir}`}>
+            <div className="wcard-hdr">
+              <span className="wcard-icon">🎙</span>
+              <div>
+                <div className="wcard-title">اختر القارئ</div>
+                <div className="wcard-sub">اختر صوتاً من أجمل أصوات تلاوة القرآن الكريم</div>
+              </div>
+            </div>
+            <div className="wcard-body">
+              <div className="rg">
+                {reciters.map(r => (
+                  <ReciterCard key={r.id} r={r} selected={selR === r.id} onClick={() => setSelR(r.id)} />
+                ))}
+              </div>
+            </div>
+            <div className="wcard-footer">
+              <div />
+              <button className="btn-next" disabled={!selR} onClick={() => goTo(2)}>
+                التالي — اختر السورة &larr;
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 2 */}
+        {step === 2 && (
+          <div className={`wcard slide-${dir}`}>
+            <div className="wcard-hdr">
+              <span className="wcard-icon">📖</span>
+              <div>
+                <div className="wcard-title">اختر السورة</div>
+                <div className="wcard-sub">القارئ: <strong>{META[selR!]?.nameAr}</strong></div>
+              </div>
+            </div>
+            <div className="wcard-body">
+              <input className="srch" type="text" placeholder="ابحث عن سورة..."
+                value={search} onChange={e => setSearch(e.target.value)} />
+              <div className="sg">
+                {filtered.map(s => (
+                  <div key={s.id} className={`si${selS?.id === s.id ? " sel" : ""}`}
+                    onClick={() => setSelS(s)}>
+                    <span className="si-n">{toAr(s.id)}</span>
+                    <div className="si-info">
+                      <span className="si-ar">{s.name_arabic}</span>
+                      <span className="si-en">{s.translated_name} · {toAr(s.verses_count)} آية</span>
+                    </div>
+                    <span className={s.revelation_place === "makkah" ? "si-mk" : "si-md"} />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="wcard-footer">
+              <button className="btn-prev" onClick={() => goTo(1)}>← السابق</button>
+              <button className="btn-next" disabled={!selS} onClick={() => goTo(3)}>
+                التالي — حدد الآيات &larr;
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 3 */}
+        {step === 3 && (
+          <div className={`wcard slide-${dir}`}>
+            <div className="wcard-hdr">
+              <span className="wcard-icon">🔢</span>
+              <div>
+                <div className="wcard-title">نطاق الآيات</div>
+                <div className="wcard-sub">سورة <strong>{selS?.name_arabic}</strong> — {toAr(selS?.verses_count ?? 0)} آية</div>
+              </div>
+            </div>
+            <div className="wcard-body">
+              <div className="tog-row">
+                <div className={`tog${whole ? " on" : ""}`} onClick={() => setWhole(!whole)} />
+                <span className="tog-lbl" onClick={() => setWhole(!whole)}>
+                  {whole ? `السورة كاملة (${toAr(selS?.verses_count ?? 0)} آية)` : "تحديد نطاق مخصص"}
+                </span>
+              </div>
+              {!whole && (
+                <div className="range-wrap">
+                  <div className="rg2col">
+                    <div className="rg2">
+                      <label>من الآية</label>
+                      <input type="number" className="ri" min={1} max={selS?.verses_count}
+                        value={aMin} onChange={e => setAMin(Math.max(1, Math.min(+e.target.value || 1, aMax)))} />
+                    </div>
+                    <div className="rg2">
+                      <label>إلى الآية</label>
+                      <input type="number" className="ri" min={aMin} max={selS?.verses_count}
+                        value={aMax} onChange={e => setAMax(Math.max(aMin, Math.min(+e.target.value || aMin, selS?.verses_count)))} />
+                    </div>
+                  </div>
+                  <AyahViz total={selS?.verses_count ?? 0} min={aMin} max={aMax} />
+                </div>
+              )}
+              <div className="range-summary">
+                <div className="rs-item"><span>عدد الآيات</span><strong>{toAr(whole ? (selS?.verses_count ?? 0) : aMax - aMin + 1)}</strong></div>
+                <div className="rs-item"><span>البداية</span><strong>آية {toAr(whole ? 1 : aMin)}</strong></div>
+                <div className="rs-item"><span>النهاية</span><strong>آية {toAr(whole ? (selS?.verses_count ?? 0) : aMax)}</strong></div>
+              </div>
+            </div>
+            <div className="wcard-footer">
+              <button className="btn-prev" onClick={() => goTo(2)}>← السابق</button>
+              <button className="btn-next" onClick={confirmRange}>تأكيد — استمع &larr;</button>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 4 */}
+        {step === 4 && (
+          <div className={`wcard wide slide-${dir}`}>
+            <div className="wcard-hdr">
+              <span className="wcard-icon">🎧</span>
+              <div>
+                <div className="wcard-title">الاستماع</div>
+                <div className="wcard-sub">
+                  {selS?.name_arabic} · {META[selR!]?.nameAr} · آية {toAr(dMin)}–{toAr(dMax)}
+                </div>
+              </div>
+              <button className="btn-edit" onClick={() => goTo(1)}>✏ تعديل</button>
+            </div>
+
+            <div className="listen-layout">
+              {/* Quran text */}
+              <div className="qtext-col">
+                <div className="qtext-hdr">
+                  <span>النص القرآني</span>
+                  {activeAyah && (
+                    <span className="qtext-cur">● الآية {toAr(activeAyah)}</span>
+                  )}
+                </div>
+                {loadingText
+                  ? <div className="qtext-loading"><span className="qloader" />جارٍ تحميل النص...</div>
+                  : <QuranTextPanel ayahs={ayahTexts} activeAyah={activeAyah}
+                      onAyahClick={handleAyahClick} />
+                }
+                {!loadingText && ayahTexts.length > 0 && (
+                  <div className="qtext-hint">انقر على أي آية للانتقال إليها في المشغّل</div>
+                )}
+              </div>
+
+              {/* Player */}
+              <div className="player-col">
+                {gen.status === "idle" && (
+                  <div className="gen-section">
+                    <div className="gen-info">
+                      <div className="gi-row"><span>القارئ</span><strong>{META[selR!]?.nameAr}</strong></div>
+                      <div className="gi-row"><span>السورة</span><strong>{selS?.name_arabic}</strong></div>
+                      <div className="gi-row"><span>الآيات</span><strong>{toAr(dMin)} — {toAr(dMax)}</strong></div>
+                    </div>
+                    <button className="btn-gen" onClick={handleGenerate}>▶ توليد الملف الصوتي</button>
+                    <button className="btn-prev" onClick={() => goTo(3)} style={{ marginTop: 8 }}>← العودة</button>
+                  </div>
+                )}
+                {gen.status !== "idle" && gen.status !== "done" && (
+                  <div className="gen-section">
+                    <ProgressDots gen={gen} />
+                    {gen.status === "error" && (
+                      <button className="btn-prev" onClick={gen.reset} style={{ marginTop: 12 }}>↺ إعادة</button>
+                    )}
+                  </div>
+                )}
+                {gen.status === "done" && gen.downloadUrl && (
+                  <SyncPlayer
+                    url={gen.downloadUrl}
+                    filename={gen.filename ?? "quran.mp3"}
+                    sizeKb={gen.sizeKb}
+                    timings={gen.timings}
+                    onAyahChange={setActiveAyah}
+                    onSeekToAyah={fn => { seekRef.current = fn; }}
+                  />
+                )}
+                {gen.status === "done" && (
+                  <button className="btn-reset" onClick={handleReset}>↺ جلسة جديدة</button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* ════════════════ STYLES ════════════════ */}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;500;600;700&display=swap');
+        @font-face{font-family:'UthmanicHafs';
+          src:url('https://verses.quran.foundation/fonts/quran/hafs/uthmanic_hafs/UthmanicHafs1Ver18.woff2') format('woff2');
+          font-display:swap}
+
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+        :root{
+          --gold:#c9a84c;--gold2:#e8c97a;--goldD:#7a6020;
+          --teal:#1d7a72;--teal2:#2a9d8f;--teal3:#3fbfb0;
+          --red:#c0392b;
+          --ff:'Noto Naskh Arabic',serif;
+          --fq:'UthmanicHafs','Scheherazade New','Traditional Arabic',serif;
+          --trans:.25s;
+        }
+
+        /* ── DARK theme ── */
+        .dark{
+          --bg0:#05080c;--bg1:#080d14;--bg2:#0c1420;--bg3:#111c2a;--bg4:#16222e;
+          --text:#d4c5a0;--textD:#8a7d60;--border:rgba(201,168,76,.13);
+          --hdr-bg:rgba(5,8,12,.85);--card-bg:rgba(12,20,32,.95);
+          --input-bg:#111c2a;--si-bg:#111c2a;--si-hover:#16222e;
+        }
+        /* ── LIGHT theme ── */
+        .light{
+          --bg0:#f4f0e8;--bg1:#ede8dd;--bg2:#ffffff;--bg3:#f8f5ee;--bg4:#ede8dd;
+          --text:#2c2416;--textD:#7a6840;--border:rgba(122,104,64,.2);
+          --hdr-bg:rgba(244,240,232,.92);--card-bg:#ffffff;
+          --input-bg:#f8f5ee;--si-bg:#f8f5ee;--si-hover:#ede8dd;
+        }
+
+        html{scroll-behavior:smooth}
+        body{background:var(--bg0);color:var(--text);font-family:var(--ff);min-height:100vh;
+          direction:rtl;overflow-x:hidden;transition:background var(--trans),color var(--trans)}
+        ::-webkit-scrollbar{width:5px}
+        ::-webkit-scrollbar-track{background:var(--bg1)}
+        ::-webkit-scrollbar-thumb{background:var(--goldD);border-radius:3px}
+
+        /* Stars */
+        .stars{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+        .star{position:absolute;background:var(--gold2);border-radius:50%;opacity:0;
+          animation:tw var(--dur,3s) var(--delay,0s) infinite ease-in-out}
+        @keyframes tw{0%,100%{opacity:0;transform:scale(.4)}50%{opacity:.5;transform:scale(1)}}
+        .geo{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.022;
+          background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cpath d='M60 8L112 36v48L60 112 8 84V36Z' fill='none' stroke='%23c9a84c' stroke-width='.7'/%3E%3Ccircle cx='60' cy='60' r='20' fill='none' stroke='%23c9a84c' stroke-width='.5'/%3E%3C/svg%3E");
+          background-size:120px 120px}
+        .app{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;
+          transition:background var(--trans)}
+
+        /* ── Header ── */
+        .hdr{display:grid;grid-template-columns:60px 1fr 60px;align-items:center;
+          padding:30px 24px 20px;border-bottom:1px solid var(--border);
+          background:var(--hdr-bg);backdrop-filter:blur(10px)}
+        .hdr-center{text-align:center}
+        .hdr-left,.hdr-right{display:flex;align-items:center;justify-content:center}
+        .hdr-moon{font-size:1.5rem;color:var(--gold);margin-bottom:4px;
+          filter:drop-shadow(0 0 8px rgba(201,168,76,.4))}
+        .hdr-title{font-size:clamp(1.6rem,3.5vw,2.6rem);font-weight:700;color:var(--gold2);
+          text-shadow:0 0 30px rgba(201,168,76,.2);margin-bottom:4px}
+        .light .hdr-title{text-shadow:none;color:#7a5a18}
+        .hdr-sub{font-size:.78rem;color:var(--textD)}
+
+        /* Theme toggle */
+        .theme-btn{background:none;border:1px solid var(--border);border-radius:50%;
+          width:38px;height:38px;font-size:1rem;cursor:pointer;transition:all .2s;
+          display:flex;align-items:center;justify-content:center}
+        .theme-btn:hover{border-color:var(--gold);transform:scale(1.1)}
+
+        /* ── Step bar ── */
+        .sb-wrap{position:sticky;top:0;z-index:20;background:var(--hdr-bg);
+          backdrop-filter:blur(14px);border-bottom:1px solid var(--border);padding:16px 32px 14px}
+        .stepbar{display:flex;align-items:flex-start;justify-content:center;
+          max-width:480px;margin:0 auto}
+        .sb-item{display:flex;flex-direction:column;align-items:center;flex:1;position:relative}
+        /* In RTL, "previous" step is to the RIGHT — line extends to the right side */
+        .sb-line{position:absolute;height:1.5px;top:17px;
+          right:50%;left:-50%;   /* spans from left edge to center, connecting to previous item's center */
+          background:var(--border);transition:background .4s}
+        .sb-line.lit{background:linear-gradient(90deg,rgba(201,168,76,.25),var(--gold))}
+        .sb-dot{position:relative;z-index:1;width:34px;height:34px;border-radius:50%;
+          border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;
+          font-size:.88rem;color:var(--textD);background:var(--bg2);
+          transition:all .35s;user-select:none}
+        .sb-dot.active{border-color:var(--gold);color:var(--gold);font-weight:700;
+          background:radial-gradient(circle,rgba(201,168,76,.15),var(--bg2));
+          box-shadow:0 0 0 5px rgba(201,168,76,.1),0 0 18px rgba(201,168,76,.18)}
+        .sb-dot.done{border-color:var(--teal2);background:var(--teal2);color:#fff;
+          font-size:.8rem;box-shadow:0 0 12px rgba(42,157,143,.3)}
+        .sb-lbl{margin-top:7px;font-size:.68rem;color:var(--textD);
+          text-align:center;white-space:nowrap;transition:color .3s}
+        .sb-lbl.active{color:var(--gold);font-weight:700}
+        .sb-lbl.done{color:var(--teal3)}
+        .sb-lbl.dim{opacity:.35}
+
+        /* ── Wizard ── */
+        .wizard{flex:1;display:flex;justify-content:center;align-items:flex-start;
+          padding:24px 16px 80px}
+        @keyframes slideFwd{from{opacity:0;transform:translateX(36px)}to{opacity:1;transform:translateX(0)}}
+        @keyframes slideBwd{from{opacity:0;transform:translateX(-36px)}to{opacity:1;transform:translateX(0)}}
+        .slide-fwd{animation:slideFwd .3s ease both}
+        .slide-bwd{animation:slideBwd .3s ease both}
+
+        /* Card */
+        .wcard{width:100%;max-width:700px;background:var(--card-bg);
+          border:1px solid var(--border);border-radius:18px;overflow:hidden;
+          box-shadow:0 20px 60px rgba(0,0,0,.25);transition:background var(--trans)}
+        .light .wcard{box-shadow:0 8px 32px rgba(0,0,0,.1)}
+        .wcard.wide{max-width:1080px}
+        .wcard-hdr{display:flex;align-items:center;gap:14px;padding:20px 24px;
+          border-bottom:1px solid var(--border);
+          background:linear-gradient(135deg,rgba(201,168,76,.06),transparent)}
+        .light .wcard-hdr{background:linear-gradient(135deg,rgba(201,168,76,.08),transparent)}
+        .wcard-icon{font-size:1.8rem;flex-shrink:0}
+        .wcard-title{font-size:1.05rem;font-weight:700;color:var(--gold2);margin-bottom:2px}
+        .light .wcard-title{color:#7a5a18}
+        .wcard-sub{font-size:.76rem;color:var(--textD)}
+        .wcard-sub strong{color:var(--teal3)}
+        .wcard-body{padding:22px 24px;max-height:calc(100vh - 310px);overflow-y:auto}
+        .wcard-footer{display:flex;justify-content:space-between;align-items:center;
+          padding:14px 24px;border-top:1px solid var(--border);
+          background:rgba(0,0,0,.05)}
+        .light .wcard-footer{background:rgba(0,0,0,.02)}
+        .btn-edit{margin-right:auto;background:none;border:1px solid var(--border);
+          color:var(--gold);font-family:var(--ff);font-size:.7rem;padding:4px 12px;
+          border-radius:20px;cursor:pointer;transition:all .2s}
+        .btn-edit:hover{background:rgba(201,168,76,.1)}
+
+        /* Buttons */
+        .btn-next{background:linear-gradient(135deg,var(--teal),var(--teal2));border:none;
+          border-radius:10px;color:#fff;font-family:var(--ff);font-size:.88rem;
+          font-weight:600;padding:10px 20px;cursor:pointer;transition:all .25s}
+        .btn-next:hover:not(:disabled){transform:translateY(-1px);
+          box-shadow:0 6px 20px rgba(42,157,143,.3)}
+        .btn-next:disabled{opacity:.3;cursor:not-allowed}
+        .btn-prev{background:var(--bg3);border:1px solid var(--border);border-radius:10px;
+          color:var(--textD);font-family:var(--ff);font-size:.82rem;
+          padding:9px 16px;cursor:pointer;transition:all .2s}
+        .btn-prev:hover{border-color:rgba(201,168,76,.3);color:var(--text)}
+        .btn-gen{width:100%;padding:14px;
+          background:linear-gradient(135deg,var(--goldD),var(--gold));border:none;
+          border-radius:12px;color:#0c1420;font-family:var(--ff);font-size:.98rem;
+          font-weight:700;cursor:pointer;transition:all .25s}
+        .btn-gen:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(201,168,76,.3)}
+        .btn-reset{width:100%;padding:9px;background:none;border:1px solid var(--border);
+          border-radius:10px;color:var(--textD);font-family:var(--ff);font-size:.8rem;
+          cursor:pointer;margin-top:10px;transition:all .2s}
+        .btn-reset:hover{border-color:var(--gold);color:var(--gold)}
+
+        /* Reciter grid */
+        .rg{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+        .rc{background:var(--bg3);border:1px solid var(--border);border-radius:12px;
+          padding:13px 10px 10px;cursor:pointer;text-align:center;transition:all .2s;position:relative}
+        .rc:hover{border-color:rgba(201,168,76,.4);transform:translateY(-2px)}
+        .rc.sel{border-color:var(--gold);background:rgba(201,168,76,.08);
+          box-shadow:0 0 14px rgba(201,168,76,.13)}
+        .rc-img,.rc-av{width:62px;height:62px;border-radius:50%;margin:0 auto 9px;display:block;
+          border:2px solid var(--border);object-fit:cover;transition:border-color .25s}
+        .rc-av{display:flex;align-items:center;justify-content:center;font-size:1.5rem;
+          font-weight:700;background:var(--bg4)}
+        .rc.sel .rc-img,.rc.sel .rc-av{border-color:var(--gold)}
+        .rc-name{font-size:.72rem;font-weight:600;color:var(--text);line-height:1.3;margin-bottom:2px}
+        .rc.sel .rc-name{color:var(--gold2)}
+        .light .rc.sel .rc-name{color:#7a5a18}
+        .rc-style{font-size:.62rem;color:var(--textD)}
+        .rc-check{position:absolute;top:8px;left:8px;width:19px;height:19px;border-radius:50%;
+          background:var(--teal2);color:#fff;font-size:.6rem;display:flex;
+          align-items:center;justify-content:center}
+
+        /* Surah list */
+        .srch{width:100%;background:var(--input-bg);border:1px solid var(--border);
+          border-radius:8px;padding:9px 14px;color:var(--text);font-family:var(--ff);
+          font-size:.88rem;margin-bottom:10px;outline:none;direction:rtl;
+          transition:border-color .2s,background var(--trans)}
+        .srch:focus{border-color:rgba(201,168,76,.45)}
+        .srch::placeholder{color:var(--textD)}
+        .sg{display:flex;flex-direction:column;gap:5px;max-height:380px;overflow-y:auto}
+        .si{background:var(--si-bg);border:1px solid var(--border);border-radius:8px;
+          padding:9px 13px;cursor:pointer;display:flex;align-items:center;gap:10px;
+          transition:all .16s}
+        .si:hover{border-color:rgba(201,168,76,.28);background:var(--si-hover)}
+        .si.sel{border-color:var(--gold);background:rgba(201,168,76,.08)}
+        .si-n{min-width:28px;height:28px;border-radius:50%;background:var(--bg4);
+          border:1px solid var(--border);display:flex;align-items:center;justify-content:center;
+          font-size:.7rem;color:var(--textD);flex-shrink:0}
+        .si.sel .si-n{border-color:var(--gold);color:var(--gold)}
+        .si-info{flex:1;display:flex;flex-direction:column}
+        .si-ar{font-size:.93rem;font-weight:600;color:var(--gold2)}
+        .light .si-ar{color:#7a5a18}
+        .si-en{font-size:.64rem;color:var(--textD);margin-top:1px}
+        .si-mk{width:5px;height:5px;border-radius:50%;background:var(--gold);flex-shrink:0}
+        .si-md{width:5px;height:5px;border-radius:50%;background:var(--teal2);flex-shrink:0}
+
+        /* Toggle */
+        .tog-row{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+        .tog{width:42px;height:23px;background:var(--bg4);border:1px solid var(--border);
+          border-radius:12px;position:relative;cursor:pointer;transition:background .25s;flex-shrink:0}
+        .tog.on{background:var(--teal2);border-color:var(--teal2)}
+        .tog::after{content:'';position:absolute;top:3px;right:3px;width:15px;height:15px;
+          border-radius:50%;background:#fff;transition:transform .25s}
+        .tog.on::after{transform:translateX(-19px)}
+        .tog-lbl{font-size:.85rem;color:var(--text);cursor:pointer}
+        .range-wrap{margin-bottom:4px}
+        .rg2col{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+        .rg2 label{display:block;font-size:.7rem;color:var(--textD);margin-bottom:4px}
+        .ri{width:100%;background:var(--input-bg);border:1px solid var(--border);
+          border-radius:8px;padding:9px 12px;color:var(--text);font-family:var(--ff);
+          font-size:.9rem;outline:none;transition:border-color .2s}
+        .ri:focus{border-color:rgba(201,168,76,.45)}
+
+        /* Ayah viz */
+        .aviz{margin-bottom:8px}
+        .aviz-bar{width:100%;height:30px;background:var(--bg3);border-radius:7px;
+          border:1px solid var(--border);position:relative;overflow:hidden;margin-bottom:6px}
+        .aviz-fill{position:absolute;top:0;bottom:0;
+          background:linear-gradient(90deg,rgba(201,168,76,.2),rgba(201,168,76,.35));
+          border-radius:7px;transition:all .3s}
+        .aviz-lbl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+          font-size:.7rem;color:var(--gold)}
+        .aviz-dots{display:flex;flex-wrap:wrap;gap:2px;max-height:48px;overflow:hidden}
+        .adot{width:6px;height:6px;border-radius:50%;background:var(--bg4)}
+        .adot.in{background:var(--gold);opacity:.7}
+
+        /* Range summary */
+        .range-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:16px}
+        .rs-item{background:var(--bg3);border:1px solid var(--border);border-radius:8px;
+          padding:10px;text-align:center;display:flex;flex-direction:column;gap:3px}
+        .rs-item span{font-size:.64rem;color:var(--textD)}
+        .rs-item strong{font-size:.88rem;color:var(--gold2);font-weight:600}
+        .light .rs-item strong{color:#7a5a18}
+
+        /* Listen layout */
+        .listen-layout{display:grid;grid-template-columns:1fr 1fr;min-height:460px}
+
+        /* Quran text */
+        .qtext-col{padding:20px 22px;border-left:1px solid var(--border);
+          display:flex;flex-direction:column;gap:10px}
+        .qtext-hdr{display:flex;justify-content:space-between;align-items:center;
+          padding-bottom:10px;border-bottom:1px solid var(--border)}
+        .qtext-hdr span:first-child{font-size:.78rem;color:var(--textD);font-weight:600}
+        .qtext-cur{font-size:.7rem;color:var(--teal3);background:rgba(42,157,143,.1);
+          border:1px solid rgba(42,157,143,.25);padding:2px 10px;border-radius:20px;
+          animation:fadeIn .3s ease}
+        @keyframes fadeIn{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:scale(1)}}
+        .qtext-loading{display:flex;align-items:center;gap:8px;font-size:.82rem;color:var(--textD);padding:24px 0}
+        .qloader{width:14px;height:14px;border-radius:50%;border:2px solid var(--border);
+          border-top-color:var(--gold);animation:spin .8s linear infinite;flex-shrink:0}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .qtext-hint{font-size:.64rem;color:var(--textD);text-align:center;
+          padding:6px;border-top:1px solid var(--border)}
+
+        .qtext-wrap{flex:1;overflow-y:auto;max-height:430px}
+        .qtext{font-family:var(--fq);font-size:1.55rem;line-height:2.5;text-align:right;
+          direction:rtl;color:var(--text);word-break:break-word;padding:4px 2px}
+        .light .qtext{color:#2c2416}
+        .qayah{cursor:pointer;border-radius:6px;transition:background .2s,box-shadow .2s;
+          padding:2px 3px;display:inline}
+        .qayah:hover{background:rgba(201,168,76,.1)}
+        .qayah.active{
+          background:rgba(201,168,76,.22);
+          box-shadow:0 0 0 2px rgba(201,168,76,.4);
+          border-radius:8px;color:var(--gold2);
+          animation:ayahPop .3s ease;
+        }
+        .light .qayah.active{background:rgba(201,168,76,.25);color:#7a5a18}
+        @keyframes ayahPop{from{background:rgba(201,168,76,.5)}to{background:rgba(201,168,76,.22)}}
+        .qnum{font-family:var(--ff);font-size:.75rem;color:var(--gold);
+          vertical-align:middle;margin-right:2px;opacity:.75}
+
+        /* Player column */
+        .player-col{padding:20px 22px;display:flex;flex-direction:column;gap:10px}
+        .gen-section{display:flex;flex-direction:column;gap:10px}
+        .gen-info{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px}
+        .gi-row{display:flex;justify-content:space-between;align-items:center;
+          padding:5px 0;border-bottom:1px solid rgba(201,168,76,.06)}
+        .gi-row:last-child{border:none}
+        .gi-row span{font-size:.7rem;color:var(--textD)}
+        .gi-row strong{font-size:.8rem;color:var(--text)}
+
+        /* Synced player */
+        .splayer{display:flex;flex-direction:column;gap:9px}
+        .sp-header{display:flex;justify-content:space-between;font-size:.68rem;color:var(--textD)}
+        .sp-fname{direction:ltr;unicode-bidi:isolate;overflow:hidden;text-overflow:ellipsis;
+          white-space:nowrap;max-width:72%}
+        .sp-size{color:var(--gold);flex-shrink:0}
+        .sp-wf{position:relative;height:72px;background:var(--bg3);border-radius:8px;
+          overflow:hidden;cursor:pointer;transition:background var(--trans)}
+        .sp-prog{position:absolute;top:0;bottom:0;left:0;background:rgba(201,168,76,.08);pointer-events:none}
+        .sp-cv{width:100%;height:100%;display:block}
+        .sp-cur{position:absolute;top:0;bottom:0;width:2px;background:var(--gold);
+          pointer-events:none;transition:left .08s linear;box-shadow:0 0 7px var(--gold)}
+        .sp-time{display:flex;justify-content:space-between;font-size:.63rem;color:var(--textD);direction:ltr}
+        .sp-ctrl{display:flex;align-items:center;justify-content:center;gap:10px}
+        .sp-skip{background:var(--bg3);border:1px solid var(--border);border-radius:18px;
+          height:32px;padding:0 12px;cursor:pointer;color:var(--textD);font-size:.78rem;
+          font-family:var(--ff);transition:all .18s}
+        .sp-skip:hover{border-color:var(--gold);color:var(--gold)}
+        .sp-play{background:linear-gradient(135deg,var(--teal),var(--teal2));border:none;
+          border-radius:50%;width:44px;height:44px;display:flex;align-items:center;
+          justify-content:center;cursor:pointer;color:#fff;font-size:.95rem;
+          transition:all .2s;box-shadow:0 3px 12px rgba(42,157,143,.4)}
+        .sp-play:hover{transform:scale(1.07)}
+        .sp-vol{display:flex;align-items:center;gap:9px;font-size:.8rem}
+        .sp-vs{flex:1;-webkit-appearance:none;height:3px;border-radius:2px;
+          background:var(--bg4);outline:none;cursor:pointer}
+        .sp-vs::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;
+          border-radius:50%;background:var(--gold);cursor:pointer}
+        .sp-jumps{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px}
+        .sp-jumplbl{font-size:.66rem;color:var(--textD);display:block;margin-bottom:6px}
+        .sp-jumpbtns{display:flex;flex-wrap:wrap;gap:4px}
+        .sp-jbtn{background:var(--bg4);border:1px solid var(--border);border-radius:6px;
+          padding:4px 10px;font-size:.75rem;font-family:var(--ff);color:var(--textD);
+          cursor:pointer;transition:all .15s}
+        .sp-jbtn:hover{border-color:rgba(201,168,76,.3);color:var(--text)}
+        .sp-jbtn.active{background:rgba(201,168,76,.18);border-color:var(--gold);
+          color:var(--gold);font-weight:700;box-shadow:0 0 8px rgba(201,168,76,.2)}
+        .sp-dl{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;
+          padding:8px;background:rgba(201,168,76,.07);border:1px solid rgba(201,168,76,.28);
+          border-radius:7px;color:var(--gold2);font-family:var(--ff);font-size:.8rem;
+          font-weight:600;text-decoration:none;transition:all .18s}
+        .light .sp-dl{color:#7a5a18}
+        .sp-dl:hover{background:rgba(201,168,76,.14)}
+
+        /* Progress */
+        .pdots{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px}
+        .pd-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+        .pd-st{display:flex;align-items:center;gap:7px;font-size:.82rem;color:var(--gold2)}
+        .light .pd-st{color:#7a5a18}
+        .pd-st.done{color:var(--teal3)}.pd-st.err{color:#e07060}
+        .pd-pulse{width:7px;height:7px;border-radius:50%;background:var(--gold);
+          animation:pulse 1.2s infinite;flex-shrink:0}
+        @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.7)}}
+        .pd-cnt{font-size:.68rem;color:var(--textD)}
+        .pd-bar-wrap{background:var(--bg4);border-radius:4px;height:6px;overflow:hidden;margin-bottom:8px}
+        .pd-bar{height:100%;border-radius:4px;transition:width .4s;
+          background:linear-gradient(90deg,var(--gold),var(--gold2))}
+        .pd-bar.done{background:linear-gradient(90deg,var(--teal),var(--teal2))}
+        .pd-grid{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px}
+        .pdot{width:8px;height:8px;border-radius:50%}
+        .pdot.ok{background:var(--teal2)}.pdot.fallback{background:var(--gold)}.pdot.failed{background:var(--red)}
+        .pd-leg{display:flex;gap:10px;font-size:.63rem;color:var(--textD)}
+        .pd-leg span{display:flex;align-items:center;gap:3px}
+        .ld{display:inline-block;width:6px;height:6px;border-radius:50%}
+        .ld.ok{background:var(--teal2)}.ld.fallback{background:var(--gold)}.ld.failed{background:var(--red)}
+
+        @media(max-width:700px){
+          .listen-layout{grid-template-columns:1fr}
+          .qtext-col{border-left:none;border-bottom:1px solid var(--border)}
+          .qtext-wrap{max-height:220px}
+          .wcard{border-radius:12px}
+          .rg{grid-template-columns:repeat(auto-fill,minmax(105px,1fr))}
+          .sb-dot{width:28px;height:28px;font-size:.8rem}
+          .sb-lbl{font-size:.6rem}
+          .wcard-body{max-height:calc(100vh - 260px)}
+          .range-summary{grid-template-columns:1fr 1fr}
+          .hdr{grid-template-columns:44px 1fr 44px;padding:20px 14px 14px}
+        }
+      `}</style>
+    </div>
+  );
+}
