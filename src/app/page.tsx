@@ -50,8 +50,28 @@ const RECITER_FOLDERS: Record<number,string> = {
   14: "Yasser_Ad-Dussary_128kbps",
   15: "Nasser_Alqatami_128kbps",
 };
-// Preview: كُلُّ نَفْسٍ ذَائِقَةُ الْمَوْتِ — Al-Imran 3:185
-function previewUrl(id:number){ return `${EVERYAYAH}/${RECITER_FOLDERS[id]}/003185.mp3`; }
+// 15 famous ayahs for random preview (surah*1000+ayah → 6-digit filename)
+const PREVIEW_AYAHS = [
+  "002255", // آية الكرسي — البقرة 255
+  "003185", // كل نفس ذائقة الموت — آل عمران 185
+  "002286", // لا يكلف الله نفسا — البقرة 286
+  "059023", // هو الله الذي لا إله إلا هو — الحشر 23
+  "036040", // لا الشمس ينبغي لها — يس 40 (قصيرة)
+  "112001", // قل هو الله أحد — الإخلاص 1
+  "055026", // كل من عليها فان — الرحمن 26
+  "021035", // كل نفس ذائقة الموت — الأنبياء 35
+  "039042", // الله يتوفى الأنفس — الزمر 42
+  "002152", // فاذكروني أذكركم — البقرة 152
+  "013028", // ألا بذكر الله تطمئن القلوب — الرعد 28
+  "065003", // ومن يتوكل على الله — الطلاق 3
+  "094005", // فإن مع العسر يسرا — الشرح 5
+  "003173", // حسبنا الله ونعم الوكيل — آل عمران 173
+  "039053", // لا تقنطوا من رحمة الله — الزمر 53
+];
+function previewUrl(id:number){
+  const ayah = PREVIEW_AYAHS[Math.floor(Math.random()*PREVIEW_AYAHS.length)];
+  return `${EVERYAYAH}/${RECITER_FOLDERS[id]}/${ayah}.mp3`;
+}
 
 const STEPS = [
   { id:1, ar:"القارئ",    icon:"🎙️" },
@@ -758,10 +778,10 @@ export default function Home() {
     setPreviewingId(id);
     audio.play().catch(()=>setPreviewingId(null));
     audio.onended = ()=>setPreviewingId(null);
-    // Auto-stop after 10s (كل نفس ذائقة الموت varies ~7-10s per reciter)
+    // Auto-stop after 5s max
     previewTimerRef.current = setTimeout(()=>{
       audio.pause(); audio.src=""; setPreviewingId(null);
-    }, 10000);
+    }, 5000);
   };
 
   const handleSelectReciter = (id:number)=>{
