@@ -31,6 +31,29 @@ const RECITERS_META: Record<number, ReciterMeta> = {
   15: { nameAr:"ناصر القطامي",         style:"مرتّل",  initials:"نق", color1:"#4a2a3a",color2:"#d46a8a", country:"السعودية",    born:"١٩٧٢" },
 };
 
+// everyayah.com folder names — exact match with backend
+const EVERYAYAH = "https://everyayah.com/data";
+const RECITER_FOLDERS: Record<number,string> = {
+  1:  "Abdul_Basit_Murattal_192kbps",
+  2:  "Abdul_Basit_Mujawwad_128kbps",
+  3:  "Abdurrahmaan_As-Sudais_192kbps",
+  4:  "Abu_Bakr_Ash-Shaatree_128kbps",
+  5:  "Hani_Rifai_192kbps",
+  6:  "Husary_128kbps",
+  7:  "Alafasy_128kbps",
+  8:  "Minshawy_Mujawwad_128kbps",
+  9:  "Minshawy_Murattal_128kbps",
+  10: "Saud_Al-Shuraym_128kbps",
+  11: "Maher_AlMuaiqly_128kbps",
+  12: "Husary_128kbps",
+  13: "Saad_Al-Ghamdi_128kbps",
+  14: "Yasser_Ad-Dussary_128kbps",
+  15: "Nasser_Alqatami_128kbps",
+};
+// Famous ayah to preview per reciter: surah/ayah → pad to 6 digits (e.g. 001001)
+// Using Al-Fatiha:1 as universal preview (Bismillah)
+function previewUrl(id:number){ return `${EVERYAYAH}/${RECITER_FOLDERS[id]}/001001.mp3`; }
+
 const STEPS = [
   { id:1, ar:"القارئ",    icon:"🎙️" },
   { id:2, ar:"السورة",   icon:"📖" },
@@ -44,42 +67,58 @@ interface MaqasidData { ayah:number; meaning:string; maqsad:string; fa2ida:strin
 function toAr(n:number){ return String(n).replace(/\d/g,d=>"٠١٢٣٤٥٦٧٨٩"[+d]); }
 
 /* ════════════════════════════════════════════════════════════
-   RECITER PHOTO — mp3quran.net API (rewaid server IDs mapped)
-   Falls back to SVG avatar if image fails to load
+   RECITER PHOTOS — Wikipedia REST API page/summary (free, CORS-enabled)
+   Falls back to SVG avatar on error
 ════════════════════════════════════════════════════════════ */
 
-// Map our internal reciter IDs → mp3quran.net rewaid IDs
-// Source: https://www.mp3quran.net/api/v3/reciters
-const MP3QURAN_IDS: Record<number,number> = {
-  1:  123,  // عبد الباسط — مرتّل  (rewaid 123)
-  2:  6,    // عبد الباسط — مجوّد  (rewaid 6)
-  3:  109,  // السديس
-  4:  114,  // أبو بكر الشاطري
-  5:  135,  // هاني الرفاعي
-  6:  128,  // الحصري — مرتّل
-  7:  118,  // العفاسي
-  8:  65,   // المنشاوي — مجوّد
-  9:  64,   // المنشاوي — مرتّل
-  10: 111,  // سعود الشريم
-  11: 121,  // ماهر المعيقلي
-  12: 130,  // الحصري — معلّم
-  13: 116,  // سعد الغامدي
-  14: 136,  // ياسر الدوسري
-  15: 137,  // ناصر القطامي
+// Wikipedia English article titles for pageimages lookup
+const RECITER_WIKI: Record<number,string> = {
+  1:  "Abdul_Basit_%27Abd_us-Samad",
+  2:  "Abdul_Basit_%27Abd_us-Samad",
+  3:  "Abdul_Rahman_Al-Sudais",
+  4:  "Abu_Bakr_al-Shatri",
+  5:  "Hani_ar-Rifai",
+  6:  "Mahmoud_Khalil_Al-Hussary",
+  7:  "Mishari_bin_Rashid_Alafasy",
+  8:  "Mohamed_Siddiq_El-Minshawi",
+  9:  "Mohamed_Siddiq_El-Minshawi",
+  10: "Saud_Al-Shuraim",
+  11: "Maher_Al-Muaiqly",
+  12: "Mahmoud_Khalil_Al-Hussary",
+  13: "Saad_Al-Ghamdi",
+  14: "Yasser_Ad-Dussary",
+  15: "Nasser_Al-Qatami",
 };
+
+const wikiPhotoCache: Record<number,string|null> = {};
+
+async function fetchWikiPhoto(id: number): Promise<string|null> {
+  if (id in wikiPhotoCache) return wikiPhotoCache[id];
+  const title = RECITER_WIKI[id];
+  if (!title) { wikiPhotoCache[id] = null; return null; }
+  try {
+    const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${title}`);
+    if (!res.ok) { wikiPhotoCache[id] = null; return null; }
+    const data = await res.json();
+    const url = data?.thumbnail?.source ?? null;
+    wikiPhotoCache[id] = url;
+    return url;
+  } catch { wikiPhotoCache[id] = null; return null; }
+}
 
 function ReciterAvatar({ id, size=64 }:{ id:number; size?:number }) {
   const m = RECITERS_META[id];
+  const [photoUrl, setPhotoUrl] = useState<string|null>(wikiPhotoCache[id] ?? null);
   const [imgOk, setImgOk] = useState(true);
-  const rewaidId = MP3QURAN_IDS[id];
-  const photoUrl = rewaidId
-    ? `https://www.mp3quran.net/api/reciters_info/imgs/${rewaidId}.jpg`
-    : null;
+
+  useEffect(()=>{
+    if (photoUrl || id in wikiPhotoCache) return;
+    fetchWikiPhoto(id).then(url => { if(url) setPhotoUrl(url); });
+  }, [id]);
 
   if(!m) return null;
 
-  // SVG fallback — calligraphic initials
-  const SvgFallback = () => {
+  if (!photoUrl || !imgOk) {
     const r = size/2, fs = size*0.32;
     return (
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} xmlns="http://www.w3.org/2000/svg">
@@ -103,9 +142,7 @@ function ReciterAvatar({ id, size=64 }:{ id:number; size?:number }) {
         </text>
       </svg>
     );
-  };
-
-  if (!photoUrl || !imgOk) return <SvgFallback />;
+  }
 
   return (
     <img
@@ -113,11 +150,12 @@ function ReciterAvatar({ id, size=64 }:{ id:number; size?:number }) {
       alt={m.nameAr}
       width={size}
       height={size}
-      style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",display:"block"}}
+      style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",objectPosition:"top center",display:"block"}}
       onError={()=>setImgOk(false)}
     />
   );
 }
+
 
 /* ════════ ISLAMIC PATTERN ════════ */
 function IslamicPattern({ opacity=0.035 }:{ opacity?:number }) {
@@ -191,19 +229,27 @@ function StepBar({ current, maxReached }:{ current:number; maxReached:number }) 
 }
 
 /* ════════ RECITER CARD ════════ */
-function ReciterCard({ r, selected, onClick }:{ r:any; selected:boolean; onClick:()=>void }) {
+function ReciterCard({ r, selected, playing, onClick }:{
+  r:any; selected:boolean; playing:boolean; onClick:()=>void
+}) {
   const m = RECITERS_META[r.id];
   return (
-    <div className={`rc${selected?" sel":""}`} onClick={onClick}>
+    <div className={`rc${selected?" sel":""}${playing?" previewing":""}`} onClick={onClick}>
       <div className="rc-avatar-wrap" style={{borderColor: selected?(m?.color2??"var(--gold)"):"transparent"}}>
         <ReciterAvatar id={r.id} size={62}/>
-        {selected && <div className="rc-check">✓</div>}
+        {selected && !playing && <div className="rc-check">✓</div>}
+        {playing && (
+          <div className="rc-wave">
+            <span/><span/><span/><span/><span/>
+          </div>
+        )}
       </div>
       <div className="rc-name">{m?.nameAr??r.reciter_name}</div>
       <div className="rc-row">
         <span className="rc-style">{m?.style??"مرتّل"}</span>
         <span className="rc-country">{m?.country??""}</span>
       </div>
+      {playing && <div className="rc-preview-lbl">▶ معاينة</div>}
     </div>
   );
 }
@@ -680,13 +726,49 @@ export default function Home() {
   const [aMax,setAMax]=useState(7);
   const [search,setSearch]=useState("");
   const [activeAyah,setActiveAyah]=useState<number|null>(null);
+  const [previewingId,setPreviewingId]=useState<number|null>(null);
   const seekRef=useRef<((n:number)=>void)|null>(null);
+  const previewRef=useRef<HTMLAudioElement|null>(null);
+  const previewTimerRef=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
   const gen=useAudioGenerator();
+
+  // Apply theme to <html> so body background inherits CSS vars
+  useEffect(()=>{
+    document.documentElement.className = dark ? "dark" : "light";
+  },[dark]);
 
   useEffect(()=>{
     fetch(`${API}/recitations`).then(r=>r.json()).then(setReciters).catch(()=>{});
     fetch(`${API}/surahs`).then(r=>r.json()).then(setSurahs).catch(()=>{});
   },[]);
+
+  // Stop preview when leaving step 1
+  useEffect(()=>{ if(step!==1) stopPreview(); },[step]);
+
+  const stopPreview = ()=>{
+    if(previewRef.current){ previewRef.current.pause(); previewRef.current.src=""; previewRef.current=null; }
+    clearTimeout(previewTimerRef.current);
+    setPreviewingId(null);
+  };
+
+  const playPreview = (id:number)=>{
+    stopPreview();
+    const audio = new Audio(previewUrl(id));
+    audio.volume = 0.85;
+    previewRef.current = audio;
+    setPreviewingId(id);
+    audio.play().catch(()=>setPreviewingId(null));
+    audio.onended = ()=>setPreviewingId(null);
+    // Auto-stop after 6 seconds (Al-Fatiha 1st ayah varies ~4-8s)
+    previewTimerRef.current = setTimeout(()=>{
+      audio.pause(); audio.src=""; setPreviewingId(null);
+    }, 6000);
+  };
+
+  const handleSelectReciter = (id:number)=>{
+    setSelR(id);
+    playPreview(id);
+  };
 
   useEffect(()=>{ if(selS){setAMin(1);setAMax(Math.min(7,selS.verses_count));} },[selS]);
 
@@ -779,7 +861,7 @@ export default function Home() {
             </div>
             <div className="wcard-body">
               <div className="rg">
-                {reciters.map(r=><ReciterCard key={r.id} r={r} selected={selR===r.id} onClick={()=>setSelR(r.id)}/>)}
+                {reciters.map(r=><ReciterCard key={r.id} r={r} selected={selR===r.id} playing={previewingId===r.id} onClick={()=>handleSelectReciter(r.id)}/>)}
               </div>
             </div>
             <div className="wcard-footer">
@@ -921,31 +1003,8 @@ export default function Home() {
 <style>{`
 @import url('https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri:wght@400;700&display=swap');
 @font-face{font-family:'UthmanicHafs';src:url('https://verses.quran.foundation/fonts/quran/hafs/uthmanic_hafs/UthmanicHafs1Ver18.woff2') format('woff2');font-display:swap}
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --gold:#c9a84c;--gold2:#e2c06a;--gold3:#f5d98a;--goldD:#7a601a;
-  --teal:#1a7a70;--teal2:#2a9d8f;--teal3:#3fc4b4;
-  --ff:'Noto Naskh Arabic','Amiri',serif;
-  --fq:'UthmanicHafs','Scheherazade New','Traditional Arabic',serif;
-  --r:16px;--r8:8px;--r24:24px;--trans:.28s;
-}
-.dark{
-  --bg0:#03060a;--bg1:#060b12;--bg2:#09111c;--bg3:#0d1826;--bg4:#111f2e;--bg5:#162334;
-  --bg-card:rgba(9,17,28,.97);--text:#d8c8a0;--textD:#8a7b5a;--textDD:#5a4d38;
-  --border:rgba(201,168,76,.11);--border2:rgba(201,168,76,.24);
-  --hdr-bg:rgba(3,6,10,.9);--input-bg:#0d1826;--pat-color:#c9a84c;
-}
-.light{
-  --bg0:#f5f0e8;--bg1:#ede4d3;--bg2:#fdfbf8;--bg3:#efe8d8;--bg4:#e6dcc8;--bg5:#d8cdb0;
-  --bg-card:#fdfbf8;--text:#1a1208;--textD:#5a4520;--textDD:#9a8460;
-  --border:rgba(90,69,32,.14);--border2:rgba(90,69,32,.32);
-  --hdr-bg:rgba(245,240,232,.96);--input-bg:#efe8d8;--pat-color:#7a6018;
-  --gold:#b08828;--gold2:#8a6010;--gold3:#c9a84c;--goldD:#5a3c08;
-  --teal:#0e6560;--teal2:#197a72;--teal3:#1e9080;
-}
-html{scroll-behavior:smooth}
-body{background:var(--bg0);color:var(--text);font-family:var(--ff);min-height:100vh;direction:rtl;overflow-x:hidden;transition:background var(--trans),color var(--trans)}
-::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:var(--bg1)}::-webkit-scrollbar-thumb{background:var(--goldD);border-radius:2px}
+/* extra vars not in globals */
+:root{--fq:'UthmanicHafs','Scheherazade New','Traditional Arabic',serif;--r:16px;--r8:8px;--r24:24px;--trans:.28s}
 .star{position:absolute;background:var(--gold3);border-radius:50%;opacity:0;animation:tw var(--dur,3s) var(--delay,0s) infinite ease-in-out}
 @keyframes tw{0%,100%{opacity:0;transform:scale(.3)}50%{opacity:.55;transform:scale(1)}}
 svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
@@ -1022,6 +1081,16 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .rc-row{display:flex;justify-content:center;gap:5px;align-items:center;flex-wrap:wrap}
 .rc-style{font-size:.58rem;color:var(--textD);background:var(--bg5);padding:1px 6px;border-radius:10px}
 .rc-country{font-size:.58rem;color:var(--teal3)}
+.rc.previewing{border-color:var(--teal2);box-shadow:0 0 0 2px rgba(42,157,143,.3),0 8px 28px rgba(42,157,143,.15)}
+.rc-wave{position:absolute;bottom:3px;left:50%;transform:translateX(-50%);display:flex;align-items:flex-end;gap:2px;height:18px}
+.rc-wave span{display:block;width:3px;border-radius:3px;background:var(--teal3);animation:rcwave .7s ease-in-out infinite alternate}
+.rc-wave span:nth-child(1){animation-delay:.0s;height:5px}
+.rc-wave span:nth-child(2){animation-delay:.1s;height:10px}
+.rc-wave span:nth-child(3){animation-delay:.2s;height:16px}
+.rc-wave span:nth-child(4){animation-delay:.1s;height:10px}
+.rc-wave span:nth-child(5){animation-delay:.0s;height:5px}
+@keyframes rcwave{from{transform:scaleY(.4)}to{transform:scaleY(1)}}
+.rc-preview-lbl{font-size:.55rem;color:var(--teal3);margin-top:3px;letter-spacing:.02em}
 
 /* SURAH SEARCH */
 .search-wrap{position:relative;margin-bottom:12px;display:flex;align-items:center}
