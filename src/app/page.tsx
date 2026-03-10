@@ -50,9 +50,8 @@ const RECITER_FOLDERS: Record<number,string> = {
   14: "Yasser_Ad-Dussary_128kbps",
   15: "Nasser_Alqatami_128kbps",
 };
-// Famous ayah to preview per reciter: surah/ayah → pad to 6 digits (e.g. 001001)
-// Using Al-Fatiha:1 as universal preview (Bismillah)
-function previewUrl(id:number){ return `${EVERYAYAH}/${RECITER_FOLDERS[id]}/001001.mp3`; }
+// Preview: كُلُّ نَفْسٍ ذَائِقَةُ الْمَوْتِ — Al-Imran 3:185
+function previewUrl(id:number){ return `${EVERYAYAH}/${RECITER_FOLDERS[id]}/003185.mp3`; }
 
 const STEPS = [
   { id:1, ar:"القارئ",    icon:"🎙️" },
@@ -759,10 +758,10 @@ export default function Home() {
     setPreviewingId(id);
     audio.play().catch(()=>setPreviewingId(null));
     audio.onended = ()=>setPreviewingId(null);
-    // Auto-stop after 6 seconds (Al-Fatiha 1st ayah varies ~4-8s)
+    // Auto-stop after 10s (كل نفس ذائقة الموت varies ~7-10s per reciter)
     previewTimerRef.current = setTimeout(()=>{
       audio.pause(); audio.src=""; setPreviewingId(null);
-    }, 6000);
+    }, 10000);
   };
 
   const handleSelectReciter = (id:number)=>{
