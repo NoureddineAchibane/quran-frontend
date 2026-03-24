@@ -73,38 +73,278 @@ function previewUrl(id:number){
   return `${EVERYAYAH}/${RECITER_FOLDERS[id]}/${ayah}.mp3`;
 }
 
-const STEPS = [
-  { id:1, ar:"القارئ",    icon:"🎙️" },
-  { id:2, ar:"السورة",   icon:"📖" },
-  { id:3, ar:"الآيات",   icon:"🔢" },
-  { id:4, ar:"الاستماع", icon:"🎧" },
-];
-
 interface AyahText { number:number; text:string; numberInSurah:number; }
 interface MaqasidData { ayah:number; meaning:string; maqsad:string; fa2ida:string; asbab?:string; topic:string; }
 
 function toAr(n:number){ return String(n).replace(/\d/g,d=>"٠١٢٣٤٥٦٧٨٩"[+d]); }
 
+/* ════════ ISLAMIC SVG ICONS ════════ */
+type IcProps = { s?: number; c?: string };
+
+const IcMic = ({s=20,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 20 20" fill="none">
+    <rect x="7.5" y="2" width="5" height="9" rx="2.5" fill={c} opacity=".85"/>
+    <path d="M4.5 9.5A5.5 5.5 0 0 0 15.5 9.5" stroke={c} strokeWidth="1.4" strokeLinecap="round"/>
+    <line x1="10" y1="15" x2="10" y2="18" stroke={c} strokeWidth="1.5" strokeLinecap="round"/>
+    <line x1="6.5" y1="18" x2="13.5" y2="18" stroke={c} strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+const IcMicOff = ({s=20,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 20 20" fill="none">
+    <rect x="7.5" y="2" width="5" height="9" rx="2.5" fill={c} opacity=".35"/>
+    <path d="M4.5 9.5A5.5 5.5 0 0 0 15.5 9.5" stroke={c} strokeWidth="1.4" strokeLinecap="round" opacity=".4"/>
+    <line x1="10" y1="15" x2="10" y2="18" stroke={c} strokeWidth="1.5" strokeLinecap="round" opacity=".4"/>
+    <line x1="3" y1="3" x2="17" y2="17" stroke={c} strokeWidth="1.6" strokeLinecap="round"/>
+  </svg>
+);
+const IcStop = ({s=20,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 20 20" fill="none">
+    <rect x="5" y="5" width="10" height="10" rx="2" fill={c}/>
+  </svg>
+);
+const IcQuran = ({s=20,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 20 20" fill="none">
+    <path d="M3 4.5C3 3.7 3.7 3 4.5 3H9.5V17H4.5C3.7 17 3 16.3 3 15.5V4.5Z" fill={c} opacity=".2" stroke={c} strokeWidth="1.2"/>
+    <path d="M10.5 3H15.5C16.3 3 17 3.7 17 4.5V15.5C17 16.3 16.3 17 15.5 17H10.5V3Z" fill={c} opacity=".2" stroke={c} strokeWidth="1.2"/>
+    <line x1="10" y1="3" x2="10" y2="17" stroke={c} strokeWidth="1.2"/>
+    <line x1="5" y1="7" x2="8.5" y2="7" stroke={c} strokeWidth=".9" strokeLinecap="round"/>
+    <line x1="5" y1="9.5" x2="8.5" y2="9.5" stroke={c} strokeWidth=".9" strokeLinecap="round"/>
+    <line x1="5" y1="12" x2="7" y2="12" stroke={c} strokeWidth=".9" strokeLinecap="round"/>
+    <line x1="11.5" y1="7" x2="15" y2="7" stroke={c} strokeWidth=".9" strokeLinecap="round"/>
+    <line x1="11.5" y1="9.5" x2="15" y2="9.5" stroke={c} strokeWidth=".9" strokeLinecap="round"/>
+    <line x1="11.5" y1="12" x2="13.5" y2="12" stroke={c} strokeWidth=".9" strokeLinecap="round"/>
+  </svg>
+);
+const IcBeads = ({s=20,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 20 20" fill="none">
+    <circle cx="10" cy="3" r="1.6" fill={c}/>
+    <circle cx="15" cy="5.5" r="1.6" fill={c}/>
+    <circle cx="17" cy="10" r="1.6" fill={c}/>
+    <circle cx="15" cy="14.5" r="1.6" fill={c}/>
+    <circle cx="10" cy="17" r="1.6" fill={c}/>
+    <circle cx="5" cy="14.5" r="1.6" fill={c}/>
+    <circle cx="3" cy="10" r="1.6" fill={c}/>
+    <circle cx="5" cy="5.5" r="1.6" fill={c}/>
+    <circle cx="10" cy="10" r="2.5" fill={c} opacity=".35"/>
+    <path d="M10 1.4V3" stroke={c} strokeWidth="1.2" strokeLinecap="round"/>
+  </svg>
+);
+const IcEar = ({s=20,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 20 20" fill="none">
+    <path d="M16 8A6 6 0 1 0 4 8c0 2.5 1.3 4.6 3.2 5.8C8 14.5 8 15.4 8 16.5A1.5 1.5 0 0 0 9.5 18h1A1.5 1.5 0 0 0 12 16.5V15c0-.8.5-1.4 1-2 1.2-1.3 3-2.8 3-5Z" stroke={c} strokeWidth="1.3" fill={c} fillOpacity=".12"/>
+    <circle cx="10" cy="8" r="2" fill={c} opacity=".5"/>
+  </svg>
+);
+const IcSearch = ({s=18,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 18 18" fill="none">
+    <circle cx="7.5" cy="7.5" r="4.5" stroke={c} strokeWidth="1.4"/>
+    <line x1="10.8" y1="10.8" x2="15" y2="15" stroke={c} strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+const IcClose = ({s=14,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 14 14" fill="none">
+    <line x1="2.5" y1="2.5" x2="11.5" y2="11.5" stroke={c} strokeWidth="1.7" strokeLinecap="round"/>
+    <line x1="11.5" y1="2.5" x2="2.5" y2="11.5" stroke={c} strokeWidth="1.7" strokeLinecap="round"/>
+  </svg>
+);
+const IcCheck = ({s=14,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 14 14" fill="none">
+    <polyline points="2,7 5.5,10.5 12,3" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+const IcPlay = ({s=18,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 18 18" fill="none">
+    <polygon points="4.5,2.5 15.5,9 4.5,15.5" fill={c}/>
+  </svg>
+);
+const IcPause = ({s=18,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 18 18" fill="none">
+    <rect x="3.5" y="2.5" width="4" height="13" rx="1.5" fill={c}/>
+    <rect x="10.5" y="2.5" width="4" height="13" rx="1.5" fill={c}/>
+  </svg>
+);
+const IcVolume = ({s=18,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 18 18" fill="none">
+    <path d="M2.5 6.5H5.5L10 3V15L5.5 11.5H2.5Z" fill={c} opacity=".8"/>
+    <path d="M12.5 6A3.5 3.5 0 0 1 12.5 12" stroke={c} strokeWidth="1.4" strokeLinecap="round"/>
+    <path d="M14.5 4A6 6 0 0 1 14.5 14" stroke={c} strokeWidth="1.1" strokeLinecap="round" opacity=".45"/>
+  </svg>
+);
+const IcDownload = ({s=16,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 16 16" fill="none">
+    <polyline points="3.5,7 8,11.5 12.5,7" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+    <line x1="8" y1="2" x2="8" y2="11.5" stroke={c} strokeWidth="1.6" strokeLinecap="round"/>
+    <line x1="2" y1="14" x2="14" y2="14" stroke={c} strokeWidth="1.6" strokeLinecap="round"/>
+  </svg>
+);
+const IcReset = ({s=16,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 16 16" fill="none">
+    <path d="M2.5 8A5.5 5.5 0 1 0 4 4.2L2 2.5" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+    <polyline points="2,2.5 2,6.5 6,6.5" stroke={c} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+const IcEdit = ({s=15,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 15 15" fill="none">
+    <path d="M10 2.5L12.5 5L5.5 12H3V9.5L10 2.5Z" stroke={c} strokeWidth="1.3" strokeLinejoin="round" fill={c} fillOpacity=".18"/>
+    <line x1="1" y1="14" x2="14" y2="14" stroke={c} strokeWidth="1.2" strokeLinecap="round" opacity=".35"/>
+  </svg>
+);
+const IcEye = ({s=16,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 16 16" fill="none">
+    <path d="M1.5 8C3.2 5 5.5 3.5 8 3.5S12.8 5 14.5 8C12.8 11 10.5 12.5 8 12.5S3.2 11 1.5 8Z" stroke={c} strokeWidth="1.3"/>
+    <circle cx="8" cy="8" r="2.2" fill={c}/>
+  </svg>
+);
+const IcEyeOff = ({s=16,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 16 16" fill="none">
+    <path d="M1.5 8C3.2 5 5.5 3.5 8 3.5S12.8 5 14.5 8C12.8 11 10.5 12.5 8 12.5S3.2 11 1.5 8Z" stroke={c} strokeWidth="1.3" opacity=".5"/>
+    <line x1="2" y1="2" x2="14" y2="14" stroke={c} strokeWidth="1.6" strokeLinecap="round"/>
+  </svg>
+);
+const IcScroll = ({s=18,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 18 18" fill="none">
+    <rect x="4" y="3" width="11" height="13" rx="2" fill={c} fillOpacity=".15" stroke={c} strokeWidth="1.2"/>
+    <circle cx="4" cy="4.5" r="2" fill={c} fillOpacity=".25" stroke={c} strokeWidth="1.1"/>
+    <circle cx="4" cy="13.5" r="2" fill={c} fillOpacity=".25" stroke={c} strokeWidth="1.1"/>
+    <line x1="7" y1="6.5" x2="12" y2="6.5" stroke={c} strokeWidth=".9" strokeLinecap="round"/>
+    <line x1="7" y1="9" x2="13" y2="9" stroke={c} strokeWidth=".9" strokeLinecap="round"/>
+    <line x1="7" y1="11.5" x2="10.5" y2="11.5" stroke={c} strokeWidth=".9" strokeLinecap="round"/>
+  </svg>
+);
+const IcCrescent = ({s=20,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 20 20" fill="none">
+    <path d="M14 3.8A7.5 7.5 0 1 1 5.5 16.5A5.5 5.5 0 0 0 14 3.8Z" fill={c} opacity=".9"/>
+  </svg>
+);
+const IcSun = ({s=20,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 20 20" fill="none">
+    <circle cx="10" cy="10" r="3.5" fill={c}/>
+    <line x1="10" y1="2" x2="10" y2="4" stroke={c} strokeWidth="1.6" strokeLinecap="round"/>
+    <line x1="10" y1="16" x2="10" y2="18" stroke={c} strokeWidth="1.6" strokeLinecap="round"/>
+    <line x1="2" y1="10" x2="4" y2="10" stroke={c} strokeWidth="1.6" strokeLinecap="round"/>
+    <line x1="16" y1="10" x2="18" y2="10" stroke={c} strokeWidth="1.6" strokeLinecap="round"/>
+    <line x1="4.1" y1="4.1" x2="5.5" y2="5.5" stroke={c} strokeWidth="1.4" strokeLinecap="round"/>
+    <line x1="14.5" y1="14.5" x2="15.9" y2="15.9" stroke={c} strokeWidth="1.4" strokeLinecap="round"/>
+    <line x1="15.9" y1="4.1" x2="14.5" y2="5.5" stroke={c} strokeWidth="1.4" strokeLinecap="round"/>
+    <line x1="5.5" y1="14.5" x2="4.1" y2="15.9" stroke={c} strokeWidth="1.4" strokeLinecap="round"/>
+  </svg>
+);
+const IcArrowR = ({s=13,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 13 13" fill="none">
+    <polyline points="3.5,2.5 9.5,6.5 3.5,10.5" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+const IcArrowL = ({s=13,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 13 13" fill="none">
+    <polyline points="9.5,2.5 3.5,6.5 9.5,10.5" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+const IcDiamond = ({s=10,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 10 10" fill="none">
+    <polygon points="5,1 9,5 5,9 1,5" fill={c} opacity=".8"/>
+  </svg>
+);
+
+const STEPS = [
+  { id:1, ar:"القارئ",    icon:<IcMic s={16}/> },
+  { id:2, ar:"السورة",   icon:<IcQuran s={16}/> },
+  { id:3, ar:"الآيات",   icon:<IcBeads s={16}/> },
+  { id:4, ar:"الاستماع", icon:<IcEar s={16}/> },
+];
+
 interface WordResult { word: string; status: 'correct' | 'wrong' | 'missing'; }
 
+/** Strip ALL tashkeel/shakl (harakat, shadda, sukun, tanwin), normalise letter
+ *  variants (alef forms, ya, ta-marbuta, hamza seats) so that comparison is
+ *  purely on root letter shape — just like a human teacher would judge. */
 function normalizeAr(text: string): string {
   return text
-    .replace(/[\u064B-\u065F\u0610-\u061A\u06D6-\u06DC\u06DF-\u06E4\u06E7-\u06E8\u06EA-\u06ED]/g, '')
-    .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
-    .replace(/ؤ/g, 'و').replace(/ئ/g, 'ي').replace(/ـ/g, '')
-    .replace(/\s+/g, ' ').trim();
+    // Harakat & diacritics (U+064B–U+065F covers all fatha/damma/kasra/sukun/shadda/tanwin)
+    .replace(/[\u064B-\u065F]/g, '')
+    // Extended Arabic marks (U+0610–U+061A)
+    .replace(/[\u0610-\u061A]/g, '')
+    // Quranic annotation signs (U+06D6–U+06ED)
+    .replace(/[\u06D6-\u06DC\u06DF-\u06E4\u06E7-\u06E8\u06EA-\u06ED]/g, '')
+    // Alef with hamza above/below/madda, alef wasla → plain alef
+    .replace(/[أإآٱ]/g, 'ا')
+    // Alef maqsura → ya
+    .replace(/ى/g, 'ي')
+    // Ta marbuta → ha (often pronounced ha at pause)
+    .replace(/ة/g, 'ه')
+    // Waw with hamza → waw
+    .replace(/ؤ/g, 'و')
+    // Ya with hamza → ya
+    .replace(/ئ/g, 'ي')
+    // Standalone hamza — frequently dropped in natural speech recognition
+    .replace(/ء/g, '')
+    // Tatweel / kashida
+    .replace(/ـ/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
+/** Levenshtein-based character-level similarity [0..1].
+ *  Used to catch near-matches where speech recognition slightly mis-transcribed
+ *  a word (e.g. "الرحمان" vs "الرحمن"). */
+function letterSim(a: string, b: string): number {
+  if (a === b) return 1;
+  const m = a.length, n = b.length;
+  if (!m || !n) return 0;
+  const dp: number[] = Array.from({length: n+1}, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0]; dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      dp[j] = a[i-1] === b[j-1] ? prev : 1 + Math.min(prev, dp[j], dp[j-1]);
+      prev = tmp;
+    }
+  }
+  return 1 - dp[n] / Math.max(m, n);
+}
+
+/** Align two word arrays via LCS, using letter-similarity ≥ 0.72 as a
+ *  "fuzzy match" so that minor speech-recognition noise doesn't penalise
+ *  a word the user clearly said correctly. */
+function alignWords(orig: string[], recog: string[]): Set<number> {
+  const m = orig.length, n = recog.length;
+  // dp[i][j] = length of best alignment for orig[0..i-1] vs recog[0..j-1]
+  const dp: number[][] = Array.from({length: m+1}, () => new Array(n+1).fill(0));
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = letterSim(orig[i-1], recog[j-1]) >= 0.72
+        ? dp[i-1][j-1] + 1
+        : Math.max(dp[i-1][j], dp[i][j-1]);
+
+  // Backtrack to collect matched original indices
+  const matched = new Set<number>();
+  let i = m, j = n;
+  while (i > 0 && j > 0) {
+    if (letterSim(orig[i-1], recog[j-1]) >= 0.72 && dp[i][j] === dp[i-1][j-1]+1) {
+      matched.add(i-1); i--; j--;
+    } else if (dp[i-1][j] >= dp[i][j-1]) i--;
+    else j--;
+  }
+  return matched;
+}
+
+/** Compare what the user recited against the original ayah.
+ *  Returns each original word tagged as:
+ *   • correct  — word found (in-order) in the recognised transcript, possibly fuzzy
+ *   • wrong    — word position exists in transcript but clearly different
+ *   • missing  — transcript ran out before this word was reached */
 function compareAyah(original: string, recognized: string): WordResult[] {
-  const origWords = original.split(/\s+/).filter(Boolean);
-  const normOrig = origWords.map(w => normalizeAr(w));
-  const normRecog = normalizeAr(recognized).split(/\s+/).filter(Boolean);
-  return origWords.map((word, i) => {
-    if (i >= normRecog.length) return { word, status: 'missing' as const };
-    if (normOrig[i] === normRecog[i]) return { word, status: 'correct' as const };
-    const nearby = normRecog.slice(Math.max(0, i-1), i+3).includes(normOrig[i]);
-    return { word, status: nearby ? 'correct' as const : 'wrong' as const };
-  });
+  const origWords  = original.split(/\s+/).filter(Boolean);
+  const normOrig   = origWords.map(normalizeAr);
+  const normRecog  = normalizeAr(recognized).split(/\s+/).filter(Boolean);
+
+  const matchedIdx = alignWords(normOrig, normRecog);
+
+  return origWords.map((word, i) => ({
+    word,
+    status: matchedIdx.has(i) ? 'correct'
+          : i < normRecog.length ? 'wrong'
+          : 'missing',
+  }));
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -278,7 +518,7 @@ function ReciterCard({ r, selected, playing, onClick }:{
     <div className={`rc${selected?" sel":""}${playing?" previewing":""}`} onClick={onClick}>
       <div className="rc-avatar-wrap" style={{borderColor: selected?(m?.color2??"var(--gold)"):"transparent"}}>
         <ReciterAvatar id={r.id} size={62}/>
-        {selected && !playing && <div className="rc-check">✓</div>}
+        {selected && !playing && <div className="rc-check"><IcCheck s={11} c="#fff"/></div>}
         {playing && (
           <div className="rc-wave">
             <span/><span/><span/><span/><span/>
@@ -290,7 +530,7 @@ function ReciterCard({ r, selected, playing, onClick }:{
         <span className="rc-style">{m?.style??"مرتّل"}</span>
         <span className="rc-country">{m?.country??""}</span>
       </div>
-      {playing && <div className="rc-preview-lbl">▶ معاينة</div>}
+      {playing && <div className="rc-preview-lbl"><IcPlay s={10} c="var(--teal3)"/> معاينة</div>}
     </div>
   );
 }
@@ -397,15 +637,15 @@ function TafsirPanel({ surahNum, ayahNum, autoLoad=false, onToggle }:{
 
   if(!open) return (
     <button className="tf-trigger" onClick={load}>
-      <span>📚</span> التفسير الميسر
+      <IcScroll s={16} c="currentColor"/> التفسير الميسر
     </button>
   );
 
   return (
     <div className="tf-panel">
       <div className="tf-header">
-        <span>📚 التفسير الميسر — آية {toAr(ayahNum)}</span>
-        <button className="tf-close" onClick={()=>{ setOpen(false); onToggle?.(false); }}>✕</button>
+        <span style={{display:"flex",alignItems:"center",gap:6}}><IcScroll s={14} c="var(--gold2)"/> التفسير الميسر — آية {toAr(ayahNum)}</span>
+        <button className="tf-close" onClick={()=>{ setOpen(false); onToggle?.(false); }}><IcClose s={12} c="currentColor"/></button>
       </div>
       {loading
         ? <div className="tf-loading"><span className="mq-spin"/>جارٍ تحميل التفسير...</div>
@@ -468,15 +708,15 @@ function MaqasidPanel({ surahNum, surahName, ayahNum, ayahText }:{
 
   if(!open) return (
     <button className="mq-trigger" onClick={()=>apiKey?doFetch(apiKey):setOpen(true)}>
-      🌙 المقاصد والفوائد
+      <><IcCrescent s={16} c="currentColor"/> المقاصد والفوائد</>
     </button>
   );
 
   return (
     <div className="mq-panel">
       <div className="mq-hdr">
-        <span className="mq-title">🌙 مقاصد الآية {toAr(ayahNum)}</span>
-        <button className="mq-x" onClick={()=>setOpen(false)}>✕</button>
+        <span className="mq-title" style={{display:"flex",alignItems:"center",gap:6}}><IcCrescent s={14} c="var(--gold2)"/> مقاصد الآية {toAr(ayahNum)}</span>
+        <button className="mq-x" onClick={()=>setOpen(false)}><IcClose s={12} c="currentColor"/></button>
       </div>
 
       {/* Key entry */}
@@ -583,7 +823,7 @@ function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick }:
         <div className="ayah-drawer">
           <div className="ayah-drawer-header">
             <span className="ayah-drawer-num">آية {toAr(selectedAyah)}</span>
-            <button className="ayah-drawer-close" onClick={()=>setSelectedAyah(null)}>✕</button>
+            <button className="ayah-drawer-close" onClick={()=>setSelectedAyah(null)}><IcClose s={12} c="currentColor"/></button>
           </div>
           <div className="ayah-actions">
             <TafsirPanel
@@ -693,12 +933,12 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
       </div>
       <div className="sp-time"><span dir="ltr">{fmt(cur)}</span><span dir="ltr">{fmt(dur)}</span></div>
       <div className="sp-ctrl">
-        <button className="sp-skip" onClick={()=>skip(-10)}>«&nbsp;١٠ث</button>
-        <button className="sp-play" onClick={toggle}>{playing?"⏸":"▶"}</button>
-        <button className="sp-skip" onClick={()=>skip(10)}>١٠ث&nbsp;»</button>
+        <button className="sp-skip" onClick={()=>skip(-10)}><IcArrowR s={12} c="currentColor"/> ١٠ث</button>
+        <button className="sp-play" onClick={toggle}>{playing?<IcPause s={18} c="#fff"/>:<IcPlay s={18} c="#fff"/>}</button>
+        <button className="sp-skip" onClick={()=>skip(10)}>١٠ث <IcArrowL s={12} c="currentColor"/></button>
       </div>
       <div className="sp-vol">
-        <span>🔊</span>
+        <IcVolume s={18} c="var(--textD)"/>
         <input type="range" min={0} max={1} step={0.05} value={vol} className="sp-vrange"
           onChange={e=>{setVol(+e.target.value);if(aRef.current)aRef.current.volume=+e.target.value;}}/>
         <span style={{fontSize:".68rem",color:"var(--textD)"}}>{Math.round(vol*100)}%</span>
@@ -716,7 +956,7 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
           </div>
         </div>
       )}
-      <a href={url} download={filename} className="sp-dl">⬇ تحميل الملف الصوتي</a>
+      <a href={url} download={filename} className="sp-dl"><IcDownload s={14} c="currentColor"/> تحميل الملف الصوتي</a>
     </div>
   );
 }
@@ -731,7 +971,7 @@ function ProgressPanel({ gen }:{ gen:ReturnType<typeof useAudioGenerator> }) {
       <div className="prog-head">
         <div className={`prog-status${done?" done":err?" err":""}`}>
           {!done&&!err&&<span className="pulse-dot"/>}
-          {done?"✓ اكتمل":err?"✕ خطأ":(msgs[status]??status)}
+          {done?<><IcCheck s={14} c="var(--teal3)"/> اكتمل</>:err?<><IcClose s={12} c="#d06050"/> خطأ</>:(msgs[status]??status)}
         </div>
         {total>0&&!done&&<span className="prog-cnt">{downloaded}/{total}</span>}
       </div>
@@ -875,7 +1115,7 @@ function HifdMode({ ayahs, surahName, surahNum }: {
   if (!isSupported) return (
     <div className="hifd-wrap">
       <div className="hifd-unsupported">
-        <div style={{fontSize:"3rem"}}>🎤</div>
+        <div style={{opacity:.55}}><IcMicOff s={56} c="var(--gold)"/></div>
         <h3 style={{color:"var(--gold2)",fontSize:"1.1rem"}}>التعرف على الصوت غير مدعوم</h3>
         <p style={{color:"var(--textD)",fontSize:".84rem",maxWidth:320,lineHeight:1.7,textAlign:"center"}}>
           يرجى استخدام Google Chrome أو Microsoft Edge للاستفادة من ميزة الحفظ الصوتي.
@@ -892,7 +1132,7 @@ function HifdMode({ ayahs, surahName, surahNum }: {
           <span style={{fontSize:".72rem",color:"var(--textD)"}}>التقدم في الحفظ</span>
           <span style={{display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:".78rem",fontWeight:700,color:"var(--gold2)"}}>آية {toAr(idx+1)} / {toAr(ayahs.length)}</span>
-            {memorizedCount > 0 && <span className="hifd-mem-badge">✓ {toAr(memorizedCount)} محفوظة</span>}
+            {memorizedCount > 0 && <span className="hifd-mem-badge"><IcCheck s={11} c="var(--teal3)"/> {toAr(memorizedCount)} محفوظة</span>}
           </span>
         </div>
         <div className="hifd-prog-bar">
@@ -911,7 +1151,7 @@ function HifdMode({ ayahs, surahName, surahNum }: {
             {surahName} · آية {toAr(currentAyah.numberInSurah)}
           </span>
           <button className="hifd-show-btn" onClick={() => setShowText(!showText)}>
-            {showText ? '🙈 أخفِ' : '👁 أظهر'} النص
+            {showText ? <><IcEyeOff s={14} c="currentColor"/> أخفِ</> : <><IcEye s={14} c="currentColor"/> أظهر</>} النص
           </button>
         </div>
         <div className={`hifd-ayah-text${showText ? ' revealed' : ' blurred'}`}>
@@ -932,7 +1172,7 @@ function HifdMode({ ayahs, surahName, surahNum }: {
             <div className="hifd-rec-error">
               <span style={{fontSize:"1rem",flexShrink:0}}>⚠️</span>
               <span>{recError}</span>
-              <button className="hifd-rec-error-x" onClick={()=>setRecError(null)}>✕</button>
+              <button className="hifd-rec-error-x" onClick={()=>setRecError(null)}><IcClose s={11} c="currentColor"/></button>
             </div>
           )}
           {isRecording && interimTranscript && (
@@ -943,7 +1183,7 @@ function HifdMode({ ayahs, surahName, surahNum }: {
           )}
           <button className={`hifd-mic-btn${isRecording?' recording':''}`}
             onClick={isRecording ? stopRecording : startRecording}>
-            <span className="hifd-mic-icon">{isRecording ? '⏹' : '🎤'}</span>
+            <span className="hifd-mic-icon">{isRecording ? <IcStop s={28} c="#fff"/> : <IcMic s={28} c="#fff"/>}</span>
             <span className="hifd-mic-label">{isRecording ? 'إيقاف' : 'ابدأ'}</span>
             {isRecording && <div className="hifd-mic-waves">{[...Array(5)].map((_,i)=><span key={i}/>)}</div>}
           </button>
@@ -958,7 +1198,7 @@ function HifdMode({ ayahs, surahName, surahNum }: {
         <div className="hifd-result">
           <div className={`hifd-score-badge${score>=80?' great':score>=50?' ok':' bad'}`}>
             <span className="hifd-score-pct">{toAr(score)}%</span>
-            <span className="hifd-score-lbl">{score>=80?'✓ ممتاز':score>=50?'⚡ جيد':'✕ راجع الآية'}</span>
+            <span className="hifd-score-lbl">{score>=80?<><IcCheck s={14} c="var(--teal3)"/> ممتاز</>:score>=50?<><IcDiamond s={12} c="var(--gold2)"/> جيد</>:<><IcClose s={12} c="#d06060"/> راجع الآية</>}</span>
           </div>
           <div className="hifd-words">
             {result.map((w, i) => (
@@ -967,20 +1207,20 @@ function HifdMode({ ayahs, surahName, surahNum }: {
           </div>
           {result.some(w => w.status !== 'correct') && (
             <div className="hifd-corrected">
-              <div className="hifd-corr-label">📖 النص الصحيح للمراجعة</div>
+              <div className="hifd-corr-label" style={{display:"flex",alignItems:"center",gap:6}}><IcQuran s={13} c="var(--gold)"/> النص الصحيح للمراجعة</div>
               <div className="hifd-corr-text">{currentAyah.text}</div>
             </div>
           )}
           <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
             <button className="hifd-retry-btn" onClick={()=>{setResult(null);finalTranscriptRef.current="";}}>
-              ↺ إعادة المحاولة
+              <IcReset s={13} c="currentColor"/> إعادة المحاولة
             </button>
             {idx < ayahs.length - 1 && (
-              <button className="hifd-next-btn" onClick={()=>setIdx(idx+1)}>الآية التالية ←</button>
+              <button className="hifd-next-btn" onClick={()=>setIdx(idx+1)}>الآية التالية <IcArrowL s={13} c="#fff"/></button>
             )}
             {idx === ayahs.length - 1 && score >= 80 && (
               <div style={{textAlign:"center",color:"var(--teal3)",fontSize:".84rem",fontWeight:600,padding:"8px 16px",background:"rgba(42,157,143,.1)",border:"1px solid rgba(42,157,143,.3)",borderRadius:10}}>
-                ✓ أتممت الحفظ بنجاح
+                <IcCheck s={14} c="var(--teal3)"/> أتممت الحفظ بنجاح
               </div>
             )}
           </div>
@@ -989,7 +1229,7 @@ function HifdMode({ ayahs, surahName, surahNum }: {
 
       {/* Navigation */}
       <div className="hifd-nav">
-        <button className="hifd-nav-btn" disabled={idx===0} onClick={()=>setIdx(idx-1)}>→ السابقة</button>
+        <button className="hifd-nav-btn" disabled={idx===0} onClick={()=>setIdx(idx-1)}><IcArrowR s={12} c="currentColor"/> السابقة</button>
         <div className="hifd-nav-dots">
           {ayahs.map((_, i) => {
             const s = scores[i];
@@ -997,7 +1237,7 @@ function HifdMode({ ayahs, surahName, surahNum }: {
             return <button key={i} className={dotCls} onClick={()=>setIdx(i)} title={`آية ${ayahs[i].numberInSurah}`}/>;
           })}
         </div>
-        <button className="hifd-nav-btn" disabled={idx===ayahs.length-1} onClick={()=>setIdx(idx+1)}>التالية ←</button>
+        <button className="hifd-nav-btn" disabled={idx===ayahs.length-1} onClick={()=>setIdx(idx+1)}>التالية <IcArrowL s={12} c="currentColor"/></button>
       </div>
     </div>
   );
@@ -1108,7 +1348,7 @@ export default function Home() {
       <header className="hdr">
         <div className="hdr-inner">
           <button className="theme-btn" onClick={()=>setDark(!dark)} title="تبديل المظهر">
-            {dark?"☀️":"🌙"}
+            {dark?<IcSun s={18} c="var(--gold)"/>:<IcCrescent s={18} c="var(--gold)"/>}
           </button>
           <div className="hdr-center">
             <div className="hdr-orn">
@@ -1152,7 +1392,7 @@ export default function Home() {
         {/* STEP 1 */}
         {step===1&&(
           <div className={`wcard slide-${dir}`}>
-            <div className="wcard-hdr"><span className="wcard-icon">🎙️</span>
+            <div className="wcard-hdr"><span className="wcard-icon"><IcMic s={30} c="var(--gold)"/></span>
               <div><div className="wcard-title">اختر القارئ</div>
                 <div className="wcard-sub">اختر صوتًا من أجمل أصوات تلاوة القرآن الكريم</div></div>
             </div>
@@ -1163,7 +1403,7 @@ export default function Home() {
             </div>
             <div className="wcard-footer">
               <div/>
-              <button className="btn-next" disabled={!selR} onClick={()=>goTo(2)}>التالي ← اختر السورة</button>
+              <button className="btn-next" disabled={!selR} onClick={()=>goTo(2)}>التالي <IcArrowL s={13} c="#fff"/> اختر السورة</button>
             </div>
           </div>
         )}
@@ -1171,15 +1411,15 @@ export default function Home() {
         {/* STEP 2 */}
         {step===2&&(
           <div className={`wcard slide-${dir}`}>
-            <div className="wcard-hdr"><span className="wcard-icon">📖</span>
+            <div className="wcard-hdr"><span className="wcard-icon"><IcQuran s={30} c="var(--gold)"/></span>
               <div><div className="wcard-title">اختر السورة</div>
                 <div className="wcard-sub">القارئ: <strong>{RECITERS_META[selR!]?.nameAr}</strong></div></div>
             </div>
             <div className="wcard-body">
               <div className="search-wrap">
-                <span className="si-icon">🔍</span>
+                <span className="si-icon"><IcSearch s={16} c="currentColor"/></span>
                 <input className="srch" placeholder="ابحث بالاسم أو الرقم..." value={search} onChange={e=>setSearch(e.target.value)}/>
-                {search&&<button className="srch-x" onClick={()=>setSearch("")}>✕</button>}
+                {search&&<button className="srch-x" onClick={()=>setSearch("")}><IcClose s={12} c="currentColor"/></button>}
               </div>
               <div className="sg">
                 {filtered.map((s,i)=>(
@@ -1194,8 +1434,8 @@ export default function Home() {
               </div>
             </div>
             <div className="wcard-footer">
-              <button className="btn-prev" onClick={()=>goTo(1)}>→ السابق</button>
-              <button className="btn-next" disabled={!selS} onClick={()=>goTo(3)}>التالي ← حدد الآيات</button>
+              <button className="btn-prev" onClick={()=>goTo(1)}><IcArrowR s={13} c="currentColor"/> السابق</button>
+              <button className="btn-next" disabled={!selS} onClick={()=>goTo(3)}>التالي <IcArrowL s={13} c="#fff"/> حدد الآيات</button>
             </div>
           </div>
         )}
@@ -1203,7 +1443,7 @@ export default function Home() {
         {/* STEP 3 */}
         {step===3&&(
           <div className={`wcard slide-${dir}`}>
-            <div className="wcard-hdr"><span className="wcard-icon">🔢</span>
+            <div className="wcard-hdr"><span className="wcard-icon"><IcBeads s={30} c="var(--gold)"/></span>
               <div><div className="wcard-title">نطاق الآيات</div>
                 <div className="wcard-sub">سورة <strong>{selS?.name_arabic}</strong> — {toAr(selS?.verses_count??0)} آية</div></div>
             </div>
@@ -1212,8 +1452,8 @@ export default function Home() {
                 onMin={setAMin} onMax={setAMax} onWhole={setWhole}/>
             </div>
             <div className="wcard-footer">
-              <button className="btn-prev" onClick={()=>goTo(2)}>→ السابق</button>
-              <button className="btn-next" onClick={confirmRange}>تأكيد ← استمع الآن</button>
+              <button className="btn-prev" onClick={()=>goTo(2)}><IcArrowR s={13} c="currentColor"/> السابق</button>
+              <button className="btn-next" onClick={confirmRange}>تأكيد <IcArrowL s={13} c="#fff"/> استمع الآن</button>
             </div>
           </div>
         )}
@@ -1222,23 +1462,23 @@ export default function Home() {
         {step===4&&(
           <div className={`wcard wide slide-${dir}`}>
             <div className="wcard-hdr">
-              <span className="wcard-icon">🎧</span>
+              <span className="wcard-icon"><IcEar s={30} c="var(--gold)"/></span>
               <div>
                 <div className="wcard-title">الاستماع والتدبر</div>
                 <div className="wcard-sub">
                   {selS?.name_arabic} · {RECITERS_META[selR!]?.nameAr} · آية {toAr(dMin)}–{toAr(dMax)}
                 </div>
               </div>
-              <button className="btn-edit" onClick={()=>goTo(1)}>✏ تعديل</button>
+              <button className="btn-edit" onClick={()=>goTo(1)}><IcEdit s={13} c="var(--gold)"/> تعديل</button>
             </div>
 
             {/* MODE TABS */}
             <div className="listen-tabs">
               <button className={`listen-tab${listenMode==='listen'?' active':''}`} onClick={()=>setListenMode('listen')}>
-                🎧 الاستماع والتدبر
+                <IcEar s={16} c="currentColor"/> الاستماع والتدبر
               </button>
               <button className={`listen-tab${listenMode==='hifd'?' active':''}`} onClick={()=>setListenMode('hifd')}>
-                📖 الحفظ الصوتي
+                <IcQuran s={16} c="currentColor"/> الحفظ الصوتي
               </button>
             </div>
 
@@ -1273,13 +1513,13 @@ export default function Home() {
                       <div className="gs-row"><span>الآيات</span><strong>{toAr(dMin)} – {toAr(dMax)}</strong></div>
                       <div className="gs-row"><span>العدد</span><strong>{toAr(dMax-dMin+1)} آية</strong></div>
                     </div>
-                    <button className="btn-gen" onClick={handleGenerate}><span>▶</span> توليد الملف الصوتي</button>
-                    <button className="btn-prev" onClick={()=>goTo(3)} style={{marginTop:8,width:"100%",textAlign:"center"}}>→ العودة للتعديل</button>
+                    <button className="btn-gen" onClick={handleGenerate}><IcPlay s={16} c="#0c1020"/> توليد الملف الصوتي</button>
+                    <button className="btn-prev" onClick={()=>goTo(3)} style={{marginTop:8,width:"100%",textAlign:"center"}}><IcArrowR s={13} c="currentColor"/> العودة للتعديل</button>
                   </div>
                 )}
                 {gen.status!=="idle"&&gen.status!=="done"&&(
                   <div><ProgressPanel gen={gen}/>
-                    {gen.status==="error"&&<button className="btn-prev" onClick={gen.reset} style={{marginTop:12,width:"100%"}}>↺ إعادة</button>}
+                    {gen.status==="error"&&<button className="btn-prev" onClick={gen.reset} style={{marginTop:12,width:"100%"}}><IcReset s={14} c="currentColor"/> إعادة</button>}
                   </div>
                 )}
                 {gen.status==="done"&&gen.downloadUrl&&(
@@ -1287,7 +1527,7 @@ export default function Home() {
                     timings={gen.timings} onAyahChange={setActiveAyah}
                     onSeekToAyah={fn=>{seekRef.current=fn;}}/>
                 )}
-                {gen.status==="done"&&<button className="btn-reset" onClick={handleReset}>↺ جلسة جديدة</button>}
+                {gen.status==="done"&&<button className="btn-reset" onClick={handleReset}><IcReset s={14} c="currentColor"/> جلسة جديدة</button>}
               </div>
             </div>}
 
