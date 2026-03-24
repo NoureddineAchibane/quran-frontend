@@ -85,6 +85,28 @@ interface MaqasidData { ayah:number; meaning:string; maqsad:string; fa2ida:strin
 
 function toAr(n:number){ return String(n).replace(/\d/g,d=>"٠١٢٣٤٥٦٧٨٩"[+d]); }
 
+interface WordResult { word: string; status: 'correct' | 'wrong' | 'missing'; }
+
+function normalizeAr(text: string): string {
+  return text
+    .replace(/[\u064B-\u065F\u0610-\u061A\u06D6-\u06DC\u06DF-\u06E4\u06E7-\u06E8\u06EA-\u06ED]/g, '')
+    .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
+    .replace(/ؤ/g, 'و').replace(/ئ/g, 'ي').replace(/ـ/g, '')
+    .replace(/\s+/g, ' ').trim();
+}
+
+function compareAyah(original: string, recognized: string): WordResult[] {
+  const origWords = original.split(/\s+/).filter(Boolean);
+  const normOrig = origWords.map(w => normalizeAr(w));
+  const normRecog = normalizeAr(recognized).split(/\s+/).filter(Boolean);
+  return origWords.map((word, i) => {
+    if (i >= normRecog.length) return { word, status: 'missing' as const };
+    if (normOrig[i] === normRecog[i]) return { word, status: 'correct' as const };
+    const nearby = normRecog.slice(Math.max(0, i-1), i+3).includes(normOrig[i]);
+    return { word, status: nearby ? 'correct' as const : 'wrong' as const };
+  });
+}
+
 /* ════════════════════════════════════════════════════════════
    RECITER PHOTOS — Wikipedia REST API page/summary (free, CORS-enabled)
    Falls back to SVG avatar on error
@@ -701,7 +723,7 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
 
 /* ════════ PROGRESS ════════ */
 function ProgressPanel({ gen }:{ gen:ReturnType<typeof useAudioGenerator> }) {
-  const {status,total,downloaded,percent,ayahs}=gen;
+  const {status,total,downloaded,percent,ayahs,error}=gen;
   const msgs:Record<string,string>={connecting:"جارٍ الاتصال...",resolving:"جارٍ التحليل...",downloading:`جارٍ التحميل ${percent}%`,merging:"دمج الملفات..."};
   const done=status==="done",err=status==="error";
   return (
@@ -714,6 +736,9 @@ function ProgressPanel({ gen }:{ gen:ReturnType<typeof useAudioGenerator> }) {
         {total>0&&!done&&<span className="prog-cnt">{downloaded}/{total}</span>}
       </div>
       {!err&&<div className="prog-bg"><div className={`prog-bar${done?" done":""}`} style={{width:`${done?100:status==="merging"?96:percent}%`}}/></div>}
+      {err&&error&&(
+        <div className="prog-err-detail">{error}</div>
+      )}
       {ayahs.length>0&&<>
         <div className="prog-dots">{ayahs.map(a=><div key={a.index} className={`prog-dot ${a.status}`} title={`آية ${a.ayah}`}/>)}</div>
         <div className="prog-leg">
@@ -722,6 +747,258 @@ function ProgressPanel({ gen }:{ gen:ReturnType<typeof useAudioGenerator> }) {
           {ayahs.filter(a=>a.status==="failed").length>0&&<span><i className="ld failed"/>فشل</span>}
         </div>
       </>}
+    </div>
+  );
+}
+
+/* ════════ HIFD MODE ════════ */
+function HifdMode({ ayahs, surahName, surahNum }: {
+  ayahs: AyahText[]; surahName: string; surahNum: number;
+}) {
+  const [idx, setIdx] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState("");
+  const [result, setResult] = useState<WordResult[] | null>(null);
+  const [recError, setRecError] = useState<string | null>(null);
+  const [showText, setShowText] = useState(false);
+  const [scores, setScores] = useState<(number | null)[]>(() => new Array(ayahs.length).fill(null));
+  const [isSupported, setIsSupported] = useState(true);
+  const srRef = useRef<any>(null);
+  const finalTranscriptRef = useRef("");
+  // errorOccurredRef prevents onend from processing empty transcript after an error
+  const errorOccurredRef = useRef(false);
+  const currentAyah = ayahs[idx];
+
+  useEffect(() => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) setIsSupported(false);
+  }, []);
+
+  useEffect(() => {
+    setResult(null); setRecError(null); setShowText(false);
+    finalTranscriptRef.current = "";
+    errorOccurredRef.current = false;
+  }, [idx]);
+
+  const handleResult = useCallback((finalText: string) => {
+    if (!finalText.trim() || !currentAyah) return;
+    const res = compareAyah(currentAyah.text, finalText);
+    setResult(res);
+    const correct = res.filter(w => w.status === 'correct').length;
+    const score = Math.round((correct / res.length) * 100);
+    setScores(s => { const n = [...s]; n[idx] = score; return n; });
+  }, [currentAyah, idx]);
+
+  const startRecording = useCallback(() => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+    setResult(null);
+    setRecError(null);
+    finalTranscriptRef.current = "";
+    errorOccurredRef.current = false;
+    setInterimTranscript("");
+
+    const sr = new SR();
+    srRef.current = sr;
+    // continuous=true: don't auto-stop after silence — the user controls stop.
+    // This is critical for Quran recitation which can have natural pauses.
+    sr.lang = 'ar-SA';
+    sr.continuous = true;
+    sr.interimResults = true;
+    sr.maxAlternatives = 3;
+
+    sr.onresult = (e: any) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finalTranscriptRef.current += e.results[i][0].transcript + ' ';
+        else interim += e.results[i][0].transcript;
+      }
+      setInterimTranscript(interim);
+    };
+
+    sr.onend = () => {
+      setIsRecording(false);
+      setInterimTranscript("");
+      // Only process if no error occurred (aborted by user stop is not an error)
+      if (!errorOccurredRef.current) {
+        handleResult(finalTranscriptRef.current.trim());
+      }
+    };
+
+    sr.onerror = (e: any) => {
+      // These are not real errors — ignore them and let onend run normally.
+      // "aborted"  : we called sr.stop() ourselves.
+      // "no-speech": silence detected, onend will fire, transcript may still exist.
+      if (e.error === 'aborted' || e.error === 'no-speech') return;
+
+      // "network" from Web Speech API does NOT mean the user's internet is down.
+      // It means Google's speech-recognition server was temporarily unreachable
+      // (service flap, rate limit, or geographic block). It is usually transient.
+      // Treat it as a soft warning so the user can simply try again.
+      if (e.error === 'network') {
+        // Don't block the UI. onend will fire next and reset isRecording.
+        // Show a dismissible hint instead of a hard error.
+        setRecError('خدمة التعرف على الصوت غير متاحة لحظياً — اضغط مجدداً للإعادة.');
+        return; // don't set errorOccurredRef so onend can still process any partial transcript
+      }
+
+      errorOccurredRef.current = true;
+      setIsRecording(false);
+      setInterimTranscript("");
+      const errorMessages: Record<string, string> = {
+        'not-allowed':            'لم يُسمح بالوصول إلى الميكروفون — أذن للمتصفح باستخدام الميكروفون ثم أعد المحاولة.',
+        'audio-capture':          'تعذّر الوصول إلى الميكروفون — تحقق من أنه غير مستخدم من تطبيق آخر.',
+        'service-not-allowed':    'خدمة التعرف على الصوت غير مسموح بها في هذا المتصفح.',
+        'language-not-supported': 'اللغة العربية غير مدعومة في هذا المتصفح — استخدم Chrome أو Edge.',
+      };
+      setRecError(errorMessages[e.error] ?? `خطأ في التعرف على الصوت (${e.error})`);
+    };
+
+    try {
+      sr.start();
+      setIsRecording(true);
+    } catch {
+      setRecError('تعذّر بدء التسجيل — قد يكون الميكروفون مستخدماً من تطبيق آخر.');
+    }
+  }, [handleResult]);
+
+  const stopRecording = useCallback(() => {
+    srRef.current?.stop();
+  }, []);
+  const memorizedCount = scores.filter(s => s !== null && s >= 80).length;
+  const correctCount = result?.filter(w => w.status === 'correct').length ?? 0;
+  const totalCount = result?.length ?? 0;
+  const score = totalCount > 0 ? Math.round((correctCount / totalCount) * 100) : null;
+
+  if (!currentAyah) return null;
+
+  if (!isSupported) return (
+    <div className="hifd-wrap">
+      <div className="hifd-unsupported">
+        <div style={{fontSize:"3rem"}}>🎤</div>
+        <h3 style={{color:"var(--gold2)",fontSize:"1.1rem"}}>التعرف على الصوت غير مدعوم</h3>
+        <p style={{color:"var(--textD)",fontSize:".84rem",maxWidth:320,lineHeight:1.7,textAlign:"center"}}>
+          يرجى استخدام Google Chrome أو Microsoft Edge للاستفادة من ميزة الحفظ الصوتي.
+        </p>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="hifd-wrap">
+      {/* Progress */}
+      <div className="hifd-progress">
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:".72rem",color:"var(--textD)"}}>التقدم في الحفظ</span>
+          <span style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:".78rem",fontWeight:700,color:"var(--gold2)"}}>آية {toAr(idx+1)} / {toAr(ayahs.length)}</span>
+            {memorizedCount > 0 && <span className="hifd-mem-badge">✓ {toAr(memorizedCount)} محفوظة</span>}
+          </span>
+        </div>
+        <div className="hifd-prog-bar">
+          {ayahs.map((_, i) => {
+            const s = scores[i];
+            const cls = s === null ? '' : s >= 80 ? ' hifd-pb-good' : ' hifd-pb-bad';
+            return <div key={i} className={`hifd-pb-seg${cls}${i===idx?' hifd-pb-cur':''}`}/>;
+          })}
+        </div>
+      </div>
+
+      {/* Ayah card */}
+      <div className="hifd-ayah-card">
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <span style={{fontSize:".78rem",color:"var(--textD)",fontWeight:600}}>
+            {surahName} · آية {toAr(currentAyah.numberInSurah)}
+          </span>
+          <button className="hifd-show-btn" onClick={() => setShowText(!showText)}>
+            {showText ? '🙈 أخفِ' : '👁 أظهر'} النص
+          </button>
+        </div>
+        <div className={`hifd-ayah-text${showText ? ' revealed' : ' blurred'}`}>
+          {currentAyah.text}
+          <span className="qnum">{String.fromCodePoint(0x06DD)}{toAr(currentAyah.numberInSurah)}</span>
+        </div>
+        {!showText && !result && (
+          <p style={{fontSize:".68rem",color:"var(--textDD)",textAlign:"center",marginTop:6}}>
+            اضغط "أظهر النص" أو ابدأ التسجيل مباشرة
+          </p>
+        )}
+      </div>
+
+      {/* Recording panel */}
+      {!result && (
+        <div className="hifd-rec-panel">
+          {recError && (
+            <div className="hifd-rec-error">
+              <span style={{fontSize:"1rem",flexShrink:0}}>⚠️</span>
+              <span>{recError}</span>
+              <button className="hifd-rec-error-x" onClick={()=>setRecError(null)}>✕</button>
+            </div>
+          )}
+          {isRecording && interimTranscript && (
+            <div className="hifd-interim">
+              <span style={{fontSize:".68rem",color:"var(--teal3)",display:"block",marginBottom:4}}>جارٍ الاستماع...</span>
+              <p style={{fontFamily:"var(--fq)",fontSize:"1.1rem",direction:"rtl",lineHeight:2,color:"var(--text)"}}>{interimTranscript}</p>
+            </div>
+          )}
+          <button className={`hifd-mic-btn${isRecording?' recording':''}`}
+            onClick={isRecording ? stopRecording : startRecording}>
+            <span className="hifd-mic-icon">{isRecording ? '⏹' : '🎤'}</span>
+            <span className="hifd-mic-label">{isRecording ? 'إيقاف' : 'ابدأ'}</span>
+            {isRecording && <div className="hifd-mic-waves">{[...Array(5)].map((_,i)=><span key={i}/>)}</div>}
+          </button>
+          <p style={{fontSize:".72rem",color:"var(--textD)",textAlign:"center"}}>
+            {isRecording ? 'اتلُ الآية بصوت واضح ثم اضغط إيقاف' : 'اضغط للبدء بالتسجيل الصوتي'}
+          </p>
+        </div>
+      )}
+
+      {/* Result panel */}
+      {result && score !== null && (
+        <div className="hifd-result">
+          <div className={`hifd-score-badge${score>=80?' great':score>=50?' ok':' bad'}`}>
+            <span className="hifd-score-pct">{toAr(score)}%</span>
+            <span className="hifd-score-lbl">{score>=80?'✓ ممتاز':score>=50?'⚡ جيد':'✕ راجع الآية'}</span>
+          </div>
+          <div className="hifd-words">
+            {result.map((w, i) => (
+              <span key={i} className={`hifd-word hifd-word-${w.status}`}>{w.word}</span>
+            ))}
+          </div>
+          {result.some(w => w.status !== 'correct') && (
+            <div className="hifd-corrected">
+              <div className="hifd-corr-label">📖 النص الصحيح للمراجعة</div>
+              <div className="hifd-corr-text">{currentAyah.text}</div>
+            </div>
+          )}
+          <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
+            <button className="hifd-retry-btn" onClick={()=>{setResult(null);finalTranscriptRef.current="";}}>
+              ↺ إعادة المحاولة
+            </button>
+            {idx < ayahs.length - 1 && (
+              <button className="hifd-next-btn" onClick={()=>setIdx(idx+1)}>الآية التالية ←</button>
+            )}
+            {idx === ayahs.length - 1 && score >= 80 && (
+              <div style={{textAlign:"center",color:"var(--teal3)",fontSize:".84rem",fontWeight:600,padding:"8px 16px",background:"rgba(42,157,143,.1)",border:"1px solid rgba(42,157,143,.3)",borderRadius:10}}>
+                ✓ أتممت الحفظ بنجاح
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Navigation */}
+      <div className="hifd-nav">
+        <button className="hifd-nav-btn" disabled={idx===0} onClick={()=>setIdx(idx-1)}>→ السابقة</button>
+        <div className="hifd-nav-dots">
+          {ayahs.map((_, i) => {
+            const s = scores[i];
+            const dotCls = `hifd-nav-dot${i===idx?' cur':''}${s!==null?(s>=80?' good':' bad'):''}`;
+            return <button key={i} className={dotCls} onClick={()=>setIdx(i)} title={`آية ${ayahs[i].numberInSurah}`}/>;
+          })}
+        </div>
+        <button className="hifd-nav-btn" disabled={idx===ayahs.length-1} onClick={()=>setIdx(idx+1)}>التالية ←</button>
+      </div>
     </div>
   );
 }
@@ -746,6 +1023,7 @@ export default function Home() {
   const [search,setSearch]=useState("");
   const [activeAyah,setActiveAyah]=useState<number|null>(null);
   const [previewingId,setPreviewingId]=useState<number|null>(null);
+  const [listenMode, setListenMode] = useState<'listen'|'hifd'>('listen');
   const seekRef=useRef<((n:number)=>void)|null>(null);
   const previewRef=useRef<HTMLAudioElement|null>(null);
   const previewTimerRef=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
@@ -954,7 +1232,17 @@ export default function Home() {
               <button className="btn-edit" onClick={()=>goTo(1)}>✏ تعديل</button>
             </div>
 
-            <div className="listen-layout">
+            {/* MODE TABS */}
+            <div className="listen-tabs">
+              <button className={`listen-tab${listenMode==='listen'?' active':''}`} onClick={()=>setListenMode('listen')}>
+                🎧 الاستماع والتدبر
+              </button>
+              <button className={`listen-tab${listenMode==='hifd'?' active':''}`} onClick={()=>setListenMode('hifd')}>
+                📖 الحفظ الصوتي
+              </button>
+            </div>
+
+            {listenMode==='listen' && <div className="listen-layout">
               {/* LEFT: Quran text + tafsir */}
               <div className="qtext-col">
                 <div className="qtext-hdr">
@@ -1001,7 +1289,15 @@ export default function Home() {
                 )}
                 {gen.status==="done"&&<button className="btn-reset" onClick={handleReset}>↺ جلسة جديدة</button>}
               </div>
-            </div>
+            </div>}
+
+            {listenMode==='hifd' && (
+              ayahTexts.length > 0
+                ? <HifdMode ayahs={ayahTexts} surahName={selS?.name_arabic??""} surahNum={selS?.id??1}/>
+                : <div style={{padding:40,textAlign:"center",color:"var(--textD)",fontSize:".88rem"}}>
+                    <span className="mq-spin"/> جارٍ تحميل النص...
+                  </div>
+            )}
           </div>
         )}
       </main>
@@ -1282,6 +1578,7 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .prog-bg{background:var(--bg5);border-radius:4px;height:7px;overflow:hidden;margin-bottom:10px}
 .prog-bar{height:100%;border-radius:4px;transition:width .5s ease;background:linear-gradient(90deg,var(--gold),var(--gold2))}
 .prog-bar.done{background:linear-gradient(90deg,var(--teal),var(--teal2))}
+.prog-err-detail{font-size:.78rem;color:#d06050;background:rgba(192,57,43,.07);border:1px solid rgba(192,57,43,.18);border-radius:8px;padding:9px 12px;margin-bottom:8px;direction:rtl;line-height:1.6}
 .prog-dots{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:8px}
 .prog-dot{width:9px;height:9px;border-radius:50%}.prog-dot.ok{background:var(--teal2)}.prog-dot.fallback{background:var(--gold)}.prog-dot.failed{background:#c0392b}
 .prog-leg{display:flex;gap:12px;font-size:.63rem;color:var(--textD)}.prog-leg span{display:flex;align-items:center;gap:3px}
@@ -1311,6 +1608,77 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 @media(max-width:480px){
   .rg{grid-template-columns:repeat(3,1fr)}.arp-summary{grid-template-columns:1fr 1fr}
 }
+
+/* LISTEN MODE TABS */
+.listen-tabs{display:flex;background:var(--bg3);border-bottom:1px solid var(--border)}
+.listen-tab{flex:1;padding:13px;border:none;background:transparent;color:var(--textD);font-family:var(--ff);font-size:.85rem;cursor:pointer;transition:all .22s;border-bottom:2px solid transparent;display:flex;align-items:center;justify-content:center;gap:7px}
+.listen-tab.active{color:var(--gold2);border-bottom-color:var(--gold);background:rgba(201,168,76,.06);font-weight:600}
+.listen-tab:hover:not(.active){color:var(--text);background:rgba(255,255,255,.025)}
+
+/* HIFD MODE */
+.hifd-wrap{display:flex;flex-direction:column;gap:16px;padding:22px 24px;max-width:800px;margin:0 auto;width:100%}
+.hifd-unsupported{text-align:center;padding:40px 20px;display:flex;flex-direction:column;align-items:center;gap:12px}
+.hifd-progress{background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.hifd-prog-bar{display:flex;gap:3px;height:8px}
+.hifd-pb-seg{flex:1;border-radius:4px;background:var(--bg5);transition:all .3s}
+.hifd-pb-good{background:var(--teal2)}
+.hifd-pb-bad{background:rgba(192,57,43,.5)}
+.hifd-pb-cur{outline:2px solid rgba(201,168,76,.6);outline-offset:1px}
+.hifd-mem-badge{font-size:.66rem;color:var(--teal3);background:rgba(42,157,143,.1);border:1px solid rgba(42,157,143,.25);padding:2px 10px;border-radius:20px}
+.hifd-ayah-card{background:var(--bg3);border:1px solid var(--border);border-radius:14px;padding:20px 22px}
+.hifd-show-btn{background:var(--bg4);border:1px solid var(--border);border-radius:20px;color:var(--textD);font-family:var(--ff);font-size:.72rem;padding:5px 13px;cursor:pointer;transition:all .2s}
+.hifd-show-btn:hover{border-color:rgba(201,168,76,.35);color:var(--text)}
+.hifd-ayah-text{font-family:var(--fq);font-size:1.65rem;line-height:2.8;text-align:right;direction:rtl;transition:filter .4s,opacity .4s;word-break:break-word}
+.hifd-ayah-text.blurred{filter:blur(10px);opacity:.35;user-select:none;pointer-events:none}
+.hifd-ayah-text.revealed{filter:none;opacity:1}
+.hifd-rec-panel{display:flex;flex-direction:column;align-items:center;gap:16px;padding:8px 0}
+.hifd-rec-error{display:flex;align-items:flex-start;gap:10px;width:100%;padding:12px 14px;background:rgba(176,32,32,.1);border:1px solid rgba(176,32,32,.3);border-radius:10px;font-size:.82rem;color:#d06060;direction:rtl;line-height:1.6}
+.hifd-rec-error-x{background:none;border:none;color:#d06060;cursor:pointer;font-size:.8rem;padding:0 4px;margin-right:auto;flex-shrink:0;opacity:.7;transition:opacity .15s}
+.hifd-rec-error-x:hover{opacity:1}
+.hifd-interim{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 16px;width:100%;max-width:520px;min-height:60px}
+.hifd-mic-btn{position:relative;width:96px;height:96px;border-radius:50%;border:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:linear-gradient(135deg,var(--teal),var(--teal2));box-shadow:0 6px 24px rgba(42,157,143,.4);transition:all .28s;overflow:visible}
+.hifd-mic-btn.recording{background:linear-gradient(135deg,#b02020,#d63030);box-shadow:0 6px 24px rgba(176,32,32,.5);animation:hifd-pulse 1.5s ease-in-out infinite}
+@keyframes hifd-pulse{0%,100%{box-shadow:0 6px 24px rgba(176,32,32,.5),0 0 0 0 rgba(176,32,32,.25)}50%{box-shadow:0 6px 24px rgba(176,32,32,.4),0 0 0 20px rgba(176,32,32,0)}}
+.hifd-mic-btn:hover:not(.recording){transform:scale(1.07);box-shadow:0 10px 32px rgba(42,157,143,.55)}
+.hifd-mic-icon{font-size:2.1rem;line-height:1;display:block}
+.hifd-mic-label{font-size:.55rem;color:rgba(255,255,255,.85);text-align:center;font-family:var(--ff)}
+.hifd-mic-waves{position:absolute;bottom:-10px;left:50%;transform:translateX(-50%);display:flex;align-items:flex-end;gap:3px}
+.hifd-mic-waves span{display:block;width:4px;border-radius:3px;background:rgba(214,48,48,.7);animation:hifd-mwave .65s ease-in-out infinite alternate}
+.hifd-mic-waves span:nth-child(1){height:6px;animation-delay:.0s}
+.hifd-mic-waves span:nth-child(2){height:12px;animation-delay:.12s}
+.hifd-mic-waves span:nth-child(3){height:18px;animation-delay:.24s}
+.hifd-mic-waves span:nth-child(4){height:12px;animation-delay:.12s}
+.hifd-mic-waves span:nth-child(5){height:6px;animation-delay:.0s}
+@keyframes hifd-mwave{from{transform:scaleY(.35)}to{transform:scaleY(1)}}
+.hifd-result{background:var(--bg3);border:1px solid var(--border);border-radius:14px;padding:18px 20px;display:flex;flex-direction:column;gap:14px;animation:fadeUp .25s ease}
+.hifd-score-badge{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:10px;border:1px solid}
+.hifd-score-badge.great{background:rgba(42,157,143,.1);border-color:rgba(42,157,143,.3);color:var(--teal3)}
+.hifd-score-badge.ok{background:rgba(201,168,76,.1);border-color:rgba(201,168,76,.3);color:var(--gold2)}
+.hifd-score-badge.bad{background:rgba(176,32,32,.1);border-color:rgba(176,32,32,.3);color:#d06060}
+.hifd-score-pct{font-size:2.2rem;font-weight:700;font-family:var(--ff);line-height:1}
+.hifd-score-lbl{font-size:.88rem;font-weight:600}
+.hifd-words{display:flex;flex-wrap:wrap;gap:7px;direction:rtl;font-family:var(--fq);font-size:1.35rem;line-height:2.4;padding:14px 16px;background:var(--bg2);border-radius:10px;border:1px solid var(--border)}
+.hifd-word{padding:3px 5px;border-radius:6px;transition:background .2s}
+.hifd-word-correct{background:rgba(42,157,143,.2);color:var(--teal3)}
+.hifd-word-wrong{background:rgba(176,32,32,.2);color:#d06060;text-decoration:line-through}
+.hifd-word-missing{background:rgba(201,168,76,.08);color:var(--textDD);opacity:.55}
+.hifd-corrected{background:var(--bg2);border:1px solid rgba(201,168,76,.2);border-radius:10px;overflow:hidden}
+.hifd-corr-label{font-size:.7rem;color:var(--gold);padding:8px 14px;background:rgba(201,168,76,.07);border-bottom:1px solid rgba(201,168,76,.15)}
+.hifd-corr-text{font-family:var(--fq);font-size:1.35rem;line-height:2.6;direction:rtl;text-align:right;padding:14px;color:var(--text)}
+.hifd-retry-btn{background:var(--bg4);border:1px solid var(--border);border-radius:10px;color:var(--textD);font-family:var(--ff);font-size:.84rem;padding:9px 20px;cursor:pointer;transition:all .2s}
+.hifd-retry-btn:hover{border-color:rgba(201,168,76,.35);color:var(--text)}
+.hifd-next-btn{background:linear-gradient(135deg,var(--teal),var(--teal2));border:none;border-radius:10px;color:#fff;font-family:var(--ff);font-size:.84rem;font-weight:600;padding:9px 20px;cursor:pointer;transition:all .22s;box-shadow:0 3px 12px rgba(42,157,143,.22)}
+.hifd-next-btn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(42,157,143,.38)}
+.hifd-nav{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.hifd-nav-btn{background:var(--bg3);border:1px solid var(--border);border-radius:10px;color:var(--textD);font-family:var(--ff);font-size:.8rem;padding:8px 16px;cursor:pointer;transition:all .2s}
+.hifd-nav-btn:disabled{opacity:.25;cursor:not-allowed}
+.hifd-nav-btn:not(:disabled):hover{border-color:rgba(201,168,76,.3);color:var(--text)}
+.hifd-nav-dots{display:flex;gap:5px;flex-wrap:wrap;justify-content:center;flex:1}
+.hifd-nav-dot{width:11px;height:11px;border-radius:50%;background:var(--bg5);border:1px solid var(--border);cursor:pointer;transition:all .22s;padding:0}
+.hifd-nav-dot.cur{background:var(--gold);border-color:var(--gold);box-shadow:0 0 8px rgba(201,168,76,.45);transform:scale(1.15)}
+.hifd-nav-dot.good{background:var(--teal2);border-color:var(--teal2)}
+.hifd-nav-dot.bad{background:rgba(176,32,32,.5);border-color:rgba(176,32,32,.5)}
+@media(max-width:768px){.hifd-wrap{padding:16px}.hifd-ayah-text{font-size:1.35rem}.hifd-words{font-size:1.1rem}}
 `}</style>
     </div>
   );

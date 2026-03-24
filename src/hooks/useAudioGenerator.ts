@@ -37,7 +37,7 @@ export interface GeneratorState {
   downloadUrl: string | null;
   filename: string | null;
   sizeKb: number | null;
-  timings: AyahTiming[];   // ← NEW: exact per-ayah timestamps
+  timings: AyahTiming[];
   error: string | null;
 }
 
@@ -56,17 +56,34 @@ export function useAudioGenerator() {
   const wsRef = useRef<WebSocket | null>(null);
 
   const reset = useCallback(() => {
-    wsRef.current?.close();
+    // Null out the ref first so stale onclose handlers ignore the event
+    const old = wsRef.current;
+    wsRef.current = null;
+    old?.close();
     setState(INITIAL);
   }, []);
 
   const generate = useCallback((req: AudioGeneratorRequest) => {
     return new Promise<string>((resolve, reject) => {
-      wsRef.current?.close();
+      // Close any in-flight WebSocket without letting its onclose set an error
+      const old = wsRef.current;
+      wsRef.current = null;
+      old?.close();
+
       setState({ ...INITIAL, status: "connecting" });
+
+      // `settled` — a plain closure boolean (not React state) so it is always
+      // current when WebSocket event handlers run, regardless of React batching.
+      // It guards both the promise and the setState so only the first terminal
+      // event (done / server-error / unexpected-close) wins.
+      let settled = false;
 
       const ws = new WebSocket(`${WS_BASE}/ws/generate-audio`);
       wsRef.current = ws;
+
+      // Returns true if this WebSocket is still the active one (not replaced by
+      // a subsequent generate() call or nulled by reset()).
+      const isCurrent = () => ws === wsRef.current;
 
       ws.onopen = () => {
         setState(s => ({ ...s, status: "resolving" }));
@@ -74,11 +91,13 @@ export function useAudioGenerator() {
       };
 
       ws.onmessage = (e) => {
+        if (!isCurrent()) return;
         let msg: any;
         try { msg = JSON.parse(e.data); } catch { return; }
 
         if (msg.type === "start") {
           setState(s => ({ ...s, status: "downloading", total: msg.total }));
+
         } else if (msg.type === "progress") {
           const p = msg as ProgressEvent;
           setState(s => ({
@@ -88,39 +107,64 @@ export function useAudioGenerator() {
             failed:    p.status === "failed"   ? s.failed    + 1 : s.failed,
             ayahs: [...s.ayahs, p],
           }));
+
         } else if (msg.type === "merging") {
           setState(s => ({ ...s, status: "merging" }));
+
         } else if (msg.type === "done") {
+          if (settled) return;
+          settled = true;
           const url = `${API_BASE}${msg.download_url}`;
           setState(s => ({
             ...s, status: "done",
             downloadUrl: url,
             filename:    msg.filename,
             sizeKb:      msg.size_kb,
-            timings:     msg.timings ?? [],   // ← store exact timings
+            timings:     msg.timings ?? [],
           }));
+          // Resolve BEFORE closing so the consumer gets the URL immediately.
           resolve(url);
+          // Null the ref before ws.close() so the onclose handler sees
+          // isCurrent()=false and exits without touching state.
+          wsRef.current = null;
           ws.close();
+
         } else if (msg.type === "error") {
-          setState(s => ({ ...s, status: "error", error: msg.message }));
-          reject(new Error(msg.message));
+          if (settled) return;
+          settled = true;
+          const msg_text = msg.message ?? "خطأ غير معروف من الخادم";
+          setState(s => ({ ...s, status: "error", error: msg_text }));
+          wsRef.current = null;
           ws.close();
+          reject(new Error(msg_text));
         }
       };
 
       ws.onerror = () => {
-        setState(s => ({ ...s, status: "error", error: "فشل الاتصال بالخادم" }));
-        reject(new Error("WebSocket connection failed"));
+        // onerror always fires just before onclose on a failed connection.
+        // We handle the error definitively in onclose to avoid double-handling.
+        // Just log so it's visible in DevTools if needed.
+        if (!isCurrent() || settled) return;
+        // Don't set state here — let onclose do it once cleanly.
       };
 
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
+        if (!isCurrent() || settled) return;
+        settled = true;
+        // Determine a useful message: use the close reason if the server sent one
+        const reason = ev.reason
+          ? ev.reason
+          : ev.code === 1006
+            ? "انقطع الاتصال بشكل مفاجئ (رمز ١٠٠٦)"
+            : "انقطع الاتصال بشكل غير متوقع";
         setState(s => {
-          if (["connecting","resolving","downloading"].includes(s.status)) {
-            reject(new Error("انقطع الاتصال"));
-            return { ...s, status: "error", error: "انقطع الاتصال بشكل غير متوقع" };
+          const mid = ["connecting","resolving","downloading","merging"];
+          if (mid.includes(s.status)) {
+            return { ...s, status: "error", error: reason };
           }
           return s;
         });
+        reject(new Error(reason));
       };
     });
   }, []);
