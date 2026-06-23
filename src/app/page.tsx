@@ -1391,8 +1391,9 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
   const [vol,setVol]=useState(1);
   const [curIdx,setCurIdx]=useState(0);
   const curIdxRef=useRef(0);
-  // Scale factor: corrects for reciter bitrate != 128 kbps (e.g. 192 kbps reciters)
-  // estimated timings assume 128 kbps; actual duration from audio element reveals true bitrate
+  // Safety-net scale: if AudioContext decoding fails during generation and byte-size
+  // estimates were used instead, this corrects the aggregate error at playback time.
+  // With exact per-ayah timings from computeExactTimings it stays 1 (no-op).
   const scaleRef=useRef(1);
   const [replayCount,setReplayCount]=useState(3);
   const [replayDone,setReplayDone]=useState(0);

@@ -61,17 +61,40 @@ const INITIAL: GeneratorState = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-function estimateTimings(
+async function computeExactTimings(
   buffers: (ArrayBuffer | null)[],
   ayahNumbers: number[],
   surahAyahPairs?: Array<{ surah: number; ayah_in_surah: number }>,
-): AyahTiming[] {
+): Promise<AyahTiming[]> {
   const timings: AyahTiming[] = [];
   let cursor = 0;
-  buffers.forEach((buf, i) => {
-    if (!buf) return;
-    // 128 kbps CBR → 16 000 bytes/s
-    const dur_ms = Math.round(buf.byteLength / 16000 * 1000);
+
+  // Try to get an AudioContext for exact duration decoding
+  let ctx: AudioContext | null = null;
+  try {
+    ctx = new AudioContext();
+  } catch {
+    // AudioContext unavailable — fall back to byte-size estimate below
+  }
+
+  for (let i = 0; i < buffers.length; i++) {
+    const buf = buffers[i];
+    if (!buf) continue;
+
+    let dur_ms: number;
+    if (ctx) {
+      try {
+        // buf.slice(0) so decodeAudioData doesn't detach the original buffer
+        const decoded = await ctx.decodeAudioData(buf.slice(0));
+        dur_ms = Math.round(decoded.duration * 1000);
+      } catch {
+        // Decode failed for this ayah — fall back to byte-size estimate
+        dur_ms = Math.round(buf.byteLength / 16000 * 1000);
+      }
+    } else {
+      dur_ms = Math.round(buf.byteLength / 16000 * 1000);
+    }
+
     const t: AyahTiming = { ayah: ayahNumbers[i], start_ms: cursor, end_ms: cursor + dur_ms };
     if (surahAyahPairs?.[i]) {
       t.surah = surahAyahPairs[i].surah;
@@ -79,7 +102,9 @@ function estimateTimings(
     }
     timings.push(t);
     cursor += dur_ms;
-  });
+  }
+
+  ctx?.close();
   return timings;
 }
 
@@ -168,7 +193,7 @@ export function useAudioGenerator() {
 
       const blob = new Blob([merged], { type: "audio/mpeg" });
       const downloadUrl = URL.createObjectURL(blob);
-      const timings = estimateTimings(buffers, ayah_numbers, surah_ayah_pairs);
+      const timings = await computeExactTimings(buffers, ayah_numbers, surah_ayah_pairs);
 
       setState(s => ({
         ...s, status: "done", downloadUrl,
