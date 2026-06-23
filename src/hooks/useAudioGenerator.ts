@@ -61,40 +61,65 @@ const INITIAL: GeneratorState = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-async function computeExactTimings(
+/**
+ * Read the bitrate (kbps) from an MP3 file's first frame header.
+ * Reads at most 4 KB — instant, synchronous, zero memory overhead.
+ * Works for CBR files (all everyayah.com reciters are CBR).
+ * Falls back to 128 kbps if the header can't be parsed.
+ */
+function readMp3BitrateKbps(buf: ArrayBuffer): number {
+  const b = new Uint8Array(buf, 0, Math.min(buf.byteLength, 4096));
+  let i = 0;
+
+  // Skip ID3v2 tag if present (starts with "ID3")
+  if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33 && b.length >= 10) {
+    const id3Size =
+      ((b[6] & 0x7F) << 21) | ((b[7] & 0x7F) << 14) |
+      ((b[8] & 0x7F) << 7)  |  (b[9] & 0x7F);
+    i = 10 + id3Size;
+  }
+
+  // Scan for MP3 sync word (0xFF followed by 0xE0–0xFF)
+  for (; i < b.length - 3; i++) {
+    if (b[i] !== 0xFF || (b[i + 1] & 0xE0) !== 0xE0) continue;
+
+    // bits [4:3] of byte1 = MPEG version  (3=MPEG1, 2=MPEG2, 0=MPEG2.5)
+    // bits [2:1] of byte1 = layer         (1=Layer III = MP3)
+    // bits [7:4] of byte2 = bitrate index
+    const version = (b[i + 1] >> 3) & 0x3;
+    const layer   = (b[i + 1] >> 1) & 0x3;
+    const biIdx   = (b[i + 2] >> 4) & 0xF;
+
+    if (layer !== 1) continue; // must be Layer III (MP3)
+
+    const kbps = version === 3
+      // MPEG1 Layer III
+      ? [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0][biIdx]
+      // MPEG2 / MPEG2.5 Layer III
+      : [0,  8, 16, 24, 32, 40, 48, 56,  64,  80,  96, 112, 128, 144, 160, 0][biIdx];
+
+    if (kbps > 0) return kbps;
+  }
+
+  return 128; // fallback
+}
+
+/**
+ * Build per-ayah timings from the real MP3 bitrate (read from each buffer's
+ * frame header). Synchronous and ~instant — no audio decoding needed.
+ */
+function buildTimings(
   buffers: (ArrayBuffer | null)[],
   ayahNumbers: number[],
   surahAyahPairs?: Array<{ surah: number; ayah_in_surah: number }>,
-): Promise<AyahTiming[]> {
+): AyahTiming[] {
   const timings: AyahTiming[] = [];
   let cursor = 0;
 
-  // Try to get an AudioContext for exact duration decoding
-  let ctx: AudioContext | null = null;
-  try {
-    ctx = new AudioContext();
-  } catch {
-    // AudioContext unavailable — fall back to byte-size estimate below
-  }
-
-  for (let i = 0; i < buffers.length; i++) {
-    const buf = buffers[i];
-    if (!buf) continue;
-
-    let dur_ms: number;
-    if (ctx) {
-      try {
-        // buf.slice(0) so decodeAudioData doesn't detach the original buffer
-        const decoded = await ctx.decodeAudioData(buf.slice(0));
-        dur_ms = Math.round(decoded.duration * 1000);
-      } catch {
-        // Decode failed for this ayah — fall back to byte-size estimate
-        dur_ms = Math.round(buf.byteLength / 16000 * 1000);
-      }
-    } else {
-      dur_ms = Math.round(buf.byteLength / 16000 * 1000);
-    }
-
+  buffers.forEach((buf, i) => {
+    if (!buf) return;
+    const bitrateKbps = readMp3BitrateKbps(buf);
+    const dur_ms = Math.round(buf.byteLength * 8 / (bitrateKbps * 1000) * 1000);
     const t: AyahTiming = { ayah: ayahNumbers[i], start_ms: cursor, end_ms: cursor + dur_ms };
     if (surahAyahPairs?.[i]) {
       t.surah = surahAyahPairs[i].surah;
@@ -102,9 +127,8 @@ async function computeExactTimings(
     }
     timings.push(t);
     cursor += dur_ms;
-  }
+  });
 
-  ctx?.close();
   return timings;
 }
 
@@ -193,7 +217,7 @@ export function useAudioGenerator() {
 
       const blob = new Blob([merged], { type: "audio/mpeg" });
       const downloadUrl = URL.createObjectURL(blob);
-      const timings = await computeExactTimings(buffers, ayah_numbers, surah_ayah_pairs);
+      const timings = buildTimings(buffers, ayah_numbers, surah_ayah_pairs);
 
       setState(s => ({
         ...s, status: "done", downloadUrl,
