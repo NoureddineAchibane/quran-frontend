@@ -9,6 +9,15 @@ export interface AudioGeneratorRequest {
   ayah_max?: number;
 }
 
+export interface HizbGeneratorRequest {
+  recitation_id: number;
+  hizb_num: number;
+  start_surah: number;
+  start_ayah: number;
+  end_surah: number;
+  end_ayah: number;
+}
+
 export interface ProgressEvent {
   type: "progress";
   ayah: number;
@@ -18,9 +27,11 @@ export interface ProgressEvent {
 }
 
 export interface AyahTiming {
-  ayah: number;      // ayah number in surah
-  start_ms: number;  // start offset in merged MP3 (ms)
-  end_ms: number;    // end offset in merged MP3 (ms)
+  ayah: number;
+  surah?: number;
+  ayah_in_surah?: number;
+  start_ms: number;
+  end_ms: number;
 }
 
 export type GeneratorStatus =
@@ -48,129 +59,146 @@ const INITIAL: GeneratorState = {
   timings: [], error: null,
 };
 
-const WS_BASE  = process.env.NEXT_PUBLIC_WS_URL  ?? "ws://localhost:8000";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+function estimateTimings(
+  buffers: (ArrayBuffer | null)[],
+  ayahNumbers: number[],
+  surahAyahPairs?: Array<{ surah: number; ayah_in_surah: number }>,
+): AyahTiming[] {
+  const timings: AyahTiming[] = [];
+  let cursor = 0;
+  buffers.forEach((buf, i) => {
+    if (!buf) return;
+    // 128 kbps CBR → 16 000 bytes/s
+    const dur_ms = Math.round(buf.byteLength / 16000 * 1000);
+    const t: AyahTiming = { ayah: ayahNumbers[i], start_ms: cursor, end_ms: cursor + dur_ms };
+    if (surahAyahPairs?.[i]) {
+      t.surah = surahAyahPairs[i].surah;
+      t.ayah_in_surah = surahAyahPairs[i].ayah_in_surah;
+    }
+    timings.push(t);
+    cursor += dur_ms;
+  });
+  return timings;
+}
 
 export function useAudioGenerator() {
   const [state, setState] = useState<GeneratorState>(INITIAL);
-  const wsRef = useRef<WebSocket | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const reset = useCallback(() => {
-    // Null out the ref first so stale onclose handlers ignore the event
-    const old = wsRef.current;
-    wsRef.current = null;
-    old?.close();
-    setState(INITIAL);
-  }, []);
-
-  const generate = useCallback((req: AudioGeneratorRequest) => {
-    return new Promise<string>((resolve, reject) => {
-      // Close any in-flight WebSocket without letting its onclose set an error
-      const old = wsRef.current;
-      wsRef.current = null;
-      old?.close();
-
-      setState({ ...INITIAL, status: "connecting" });
-
-      // `settled` — a plain closure boolean (not React state) so it is always
-      // current when WebSocket event handlers run, regardless of React batching.
-      // It guards both the promise and the setState so only the first terminal
-      // event (done / server-error / unexpected-close) wins.
-      let settled = false;
-
-      const ws = new WebSocket(`${WS_BASE}/ws/generate-audio`);
-      wsRef.current = ws;
-
-      // Returns true if this WebSocket is still the active one (not replaced by
-      // a subsequent generate() call or nulled by reset()).
-      const isCurrent = () => ws === wsRef.current;
-
-      ws.onopen = () => {
-        setState(s => ({ ...s, status: "resolving" }));
-        ws.send(JSON.stringify(req));
-      };
-
-      ws.onmessage = (e) => {
-        if (!isCurrent()) return;
-        let msg: any;
-        try { msg = JSON.parse(e.data); } catch { return; }
-
-        if (msg.type === "start") {
-          setState(s => ({ ...s, status: "downloading", total: msg.total }));
-
-        } else if (msg.type === "progress") {
-          const p = msg as ProgressEvent;
-          setState(s => ({
-            ...s,
-            downloaded: s.downloaded + 1,
-            fallbacks: p.status === "fallback" ? s.fallbacks + 1 : s.fallbacks,
-            failed:    p.status === "failed"   ? s.failed    + 1 : s.failed,
-            ayahs: [...s.ayahs, p],
-          }));
-
-        } else if (msg.type === "merging") {
-          setState(s => ({ ...s, status: "merging" }));
-
-        } else if (msg.type === "done") {
-          if (settled) return;
-          settled = true;
-          const url = `${API_BASE}${msg.download_url}`;
-          setState(s => ({
-            ...s, status: "done",
-            downloadUrl: url,
-            filename:    msg.filename,
-            sizeKb:      msg.size_kb,
-            timings:     msg.timings ?? [],
-          }));
-          // Resolve BEFORE closing so the consumer gets the URL immediately.
-          resolve(url);
-          // Null the ref before ws.close() so the onclose handler sees
-          // isCurrent()=false and exits without touching state.
-          wsRef.current = null;
-          ws.close();
-
-        } else if (msg.type === "error") {
-          if (settled) return;
-          settled = true;
-          const msg_text = msg.message ?? "خطأ غير معروف من الخادم";
-          setState(s => ({ ...s, status: "error", error: msg_text }));
-          wsRef.current = null;
-          ws.close();
-          reject(new Error(msg_text));
-        }
-      };
-
-      ws.onerror = () => {
-        // onerror always fires just before onclose on a failed connection.
-        // We handle the error definitively in onclose to avoid double-handling.
-        // Just log so it's visible in DevTools if needed.
-        if (!isCurrent() || settled) return;
-        // Don't set state here — let onclose do it once cleanly.
-      };
-
-      ws.onclose = (ev) => {
-        if (!isCurrent() || settled) return;
-        settled = true;
-        // Determine a useful message: use the close reason if the server sent one
-        const reason = ev.reason
-          ? ev.reason
-          : ev.code === 1006
-            ? "انقطع الاتصال بشكل مفاجئ (رمز ١٠٠٦)"
-            : "انقطع الاتصال بشكل غير متوقع";
-        setState(s => {
-          const mid = ["connecting","resolving","downloading","merging"];
-          if (mid.includes(s.status)) {
-            return { ...s, status: "error", error: reason };
-          }
-          return s;
-        });
-        reject(new Error(reason));
-      };
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setState(prev => {
+      if (prev.downloadUrl) URL.revokeObjectURL(prev.downloadUrl);
+      return INITIAL;
     });
   }, []);
+
+  const _run = useCallback(async (
+    endpoint: string,
+    payload: object,
+    filenameHint: string,
+  ): Promise<string> => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    setState({ ...INITIAL, status: "resolving" });
+
+    try {
+      // Step 1: resolve CDN URLs from backend
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || `خطأ HTTP ${res.status}`);
+      }
+      const { urls, ayah_numbers, surah_ayah_pairs } = await res.json();
+
+      setState(s => ({ ...s, status: "downloading", total: urls.length }));
+
+      // Step 2: fetch each MP3 from everyayah CDN in parallel, track progress
+      const buffers: (ArrayBuffer | null)[] = new Array(urls.length).fill(null);
+      let completed = 0;
+
+      await Promise.all(
+        (urls as string[]).map(async (url, i) => {
+          try {
+            const r = await fetch(url, { signal: ctrl.signal });
+            if (r.ok) {
+              buffers[i] = await r.arrayBuffer();
+              completed++;
+              setState(s => ({
+                ...s,
+                downloaded: completed,
+                ayahs: [...s.ayahs, {
+                  type: "progress" as const,
+                  ayah: ayah_numbers[i],
+                  index: i + 1,
+                  total: urls.length,
+                  status: "ok" as const,
+                }],
+              }));
+            } else {
+              completed++;
+              setState(s => ({ ...s, downloaded: completed }));
+            }
+          } catch {
+            completed++;
+            setState(s => ({ ...s, downloaded: completed }));
+          }
+        })
+      );
+
+      setState(s => ({ ...s, status: "merging" }));
+
+      // Step 3: concatenate valid buffers in order
+      const totalBytes = buffers.reduce((sum, b) => sum + (b?.byteLength ?? 0), 0);
+      const merged = new Uint8Array(totalBytes);
+      let offset = 0;
+      for (const buf of buffers) {
+        if (buf) { merged.set(new Uint8Array(buf), offset); offset += buf.byteLength; }
+      }
+
+      const blob = new Blob([merged], { type: "audio/mpeg" });
+      const downloadUrl = URL.createObjectURL(blob);
+      const timings = estimateTimings(buffers, ayah_numbers, surah_ayah_pairs);
+
+      setState(s => ({
+        ...s, status: "done", downloadUrl,
+        filename: filenameHint,
+        sizeKb: Math.round(blob.size / 1024),
+        timings,
+      }));
+      return downloadUrl;
+    } catch (err: unknown) {
+      if ((err as Error)?.name === "AbortError") throw err;
+      const msg = (err as Error)?.message ?? "خطأ غير معروف";
+      setState(s => ({ ...s, status: "error", error: msg }));
+      throw err;
+    }
+  }, []);
+
+  const generate = useCallback(
+    (req: AudioGeneratorRequest) =>
+      _run("/resolve-audio", req, `surah_${req.surah_number}.mp3`),
+    [_run],
+  );
+
+  const generateHizb = useCallback(
+    (req: HizbGeneratorRequest) =>
+      _run("/resolve-hizb", req, `hizb_${req.hizb_num}.mp3`),
+    [_run],
+  );
 
   const percent = state.total > 0
     ? Math.round((state.downloaded / state.total) * 100) : 0;
 
-  return { ...state, percent, generate, reset };
+  return { ...state, percent, generate, generateHizb, reset };
 }
