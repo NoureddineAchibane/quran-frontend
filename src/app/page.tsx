@@ -1215,9 +1215,10 @@ function MaqasidPanel({ surahNum, surahName, ayahNum, ayahText }:{
 }
 
 /* ════════ QURAN TEXT PANEL ════════ */
-function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick }:{
+function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick, scrollRef }:{
   ayahs:AyahText[]; surahNum:number; surahName:string;
   activeAyah:AyahRef|null; onAyahClick?:(ref:AyahRef)=>void;
+  scrollRef?: React.RefObject<HTMLDivElement>;
 }) {
   const [selectedAyah,setSelectedAyah] = useState<AyahRef|null>(null);
   const [tafsirWasOpen,setTafsirWasOpen] = useState(false);
@@ -1296,7 +1297,7 @@ function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick }:
           </div>
 
           {/* flowing quran text */}
-          <div className="mushaf-text-wrap" ref={mushafScrollRef}>
+          <div className="mushaf-text-wrap" ref={scrollRef}>
             {grouped.map(group=>{
               const showBasmala = group.ayahs[0]?.numberInSurah===1 && group.surahNumber!==9;
               return (
@@ -2308,6 +2309,7 @@ export default function Home() {
                       : <QuranTextPanel
                           ayahs={ayahTexts} surahNum={selS?.id??selHizb?.start_surah??1} surahName={selS?.name_arabic??surahs.find(s=>s.id===selHizb?.start_surah)?.name_arabic??""}
                           activeAyah={activeAyah}
+                          scrollRef={mushafScrollRef}
                           onAyahClick={(ref)=>{ setActiveAyah(ref); seekRef.current?.(ref); }}/>
                     }
                     {!loadingText&&ayahTexts.length>0&&(
