@@ -1391,6 +1391,9 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
   const [vol,setVol]=useState(1);
   const [curIdx,setCurIdx]=useState(0);
   const curIdxRef=useRef(0);
+  // Scale factor: corrects for reciter bitrate != 128 kbps (e.g. 192 kbps reciters)
+  // estimated timings assume 128 kbps; actual duration from audio element reveals true bitrate
+  const scaleRef=useRef(1);
   const [replayCount,setReplayCount]=useState(3);
   const [replayDone,setReplayDone]=useState(0);
   const playingRef=useRef(false);
@@ -1420,8 +1423,9 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
       ctx.closePath();ctx.fill();
     });
     if(timings.length>1&&dur>0){
+      const sc=scaleRef.current;
       timings.slice(1).forEach(t=>{
-        const mx=Math.floor((t.start_ms/1000/dur)*W);
+        const mx=Math.floor((t.start_ms*sc/1000/dur)*W);
         ctx.strokeStyle="rgba(201,168,76,0.4)";ctx.lineWidth=1;
         ctx.setLineDash([3,4]);ctx.beginPath();ctx.moveTo(mx,4);ctx.lineTo(mx,H-4);ctx.stroke();
         ctx.setLineDash([]);
@@ -1429,12 +1433,13 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
     }
   },[timings,dur]);
 
-  useEffect(()=>{ bars.current=Array.from({length:130},()=>0.1+Math.random()*.9); setTimeout(()=>draw(0),60); },[url]);
+  useEffect(()=>{ scaleRef.current=1; bars.current=Array.from({length:130},()=>0.1+Math.random()*.9); setTimeout(()=>draw(0),60); },[url]);
 
   const getActiveIdx=useCallback((s:number)=>{
     if(!timings.length)return 0;
+    const sc=scaleRef.current;
     const ms=s*1000;
-    for(let i=timings.length-1;i>=0;i--){if(ms>=timings[i].start_ms)return i;}
+    for(let i=timings.length-1;i>=0;i--){if(ms>=timings[i].start_ms*sc)return i;}
     return 0;
   },[timings]);
   const timingRef=useCallback((t:AyahTiming|undefined):AyahRef|null=>{
@@ -1450,7 +1455,13 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
 
   useEffect(()=>{
     const a=new Audio(url);aRef.current=a;a.volume=vol;a.playbackRate=speedRef.current;
-    a.onloadedmetadata=()=>{ setDur(a.duration); onTimeChange?.(a.currentTime,a.duration||0); };
+    a.onloadedmetadata=()=>{
+      setDur(a.duration);
+      onTimeChange?.(a.currentTime,a.duration||0);
+      // Compute scale to correct cursor tracking for non-128kbps reciters
+      const estimatedMs = timings.length>0 ? timings[timings.length-1].end_ms : 0;
+      scaleRef.current = estimatedMs>0 ? (a.duration*1000)/estimatedMs : 1;
+    };
     a.onplay=()=>{ setPlaying(true);playingRef.current=true;onPlayChange?.(true); };
     a.onpause=()=>{ setPlaying(false);playingRef.current=false;onPlayChange?.(false); };
     a.ontimeupdate=()=>{
@@ -1500,7 +1511,7 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
     onSeekToAyah((ref:AyahRef)=>{
       const a=aRef.current;if(!a)return;
       const t=timings.find(t=>sameAyah(timingRef(t),ref));
-      if(t){a.currentTime=t.start_ms/1000;if(!playingRef.current)a.play();}
+      if(t){a.currentTime=t.start_ms*scaleRef.current/1000;if(!playingRef.current)a.play();}
     });
   },[timings,timingRef]);
   const seek=(e:React.MouseEvent<HTMLDivElement>)=>{
@@ -1558,7 +1569,7 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
           <div className="sp-jbtns">
             {timings.map((t,i)=>(
               <button key={`${t.surah??baseSurah}:${t.ayah_in_surah??t.ayah}:${i}`} className={`sp-jbtn${i===curIdx?" active":""}`}
-                onClick={()=>{const a=aRef.current;if(!a)return;a.currentTime=t.start_ms/1000;if(!playingRef.current)a.play();}}>
+                onClick={()=>{const a=aRef.current;if(!a)return;a.currentTime=t.start_ms*scaleRef.current/1000;if(!playingRef.current)a.play();}}>
                 {timingLabel(t)}
               </button>
             ))}
