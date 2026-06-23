@@ -53,12 +53,17 @@ html.light {
 
 /* ─── Base ───────────────────────────────────────────────── */
 html {
-  scroll-behavior: smooth;
-  /* prevent rubber-band layout shift on iOS */
+  /* ── Safari iOS: prevent horizontal scroll from ANY child overflow ── */
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
   overscroll-behavior-y: none;
+  scroll-behavior: smooth;
 }
 
 body {
+  width: 100%;
+  min-width: 0;
   background: var(--bg0);
   color: var(--text);
   font-family: var(--ff);
