@@ -1296,7 +1296,7 @@ function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick }:
           </div>
 
           {/* flowing quran text */}
-          <div className="mushaf-text-wrap">
+          <div className="mushaf-text-wrap" ref={mushafScrollRef}>
             {grouped.map(group=>{
               const showBasmala = group.ayahs[0]?.numberInSurah===1 && group.surahNumber!==9;
               return (
@@ -1888,8 +1888,10 @@ export default function Home() {
   const [showHistory,setShowHistory]=useState(false);
   const [justFinished,setJustFinished]=useState(false);
   const [isFullscreen,setIsFullscreen]=useState(false);
+  const [readingMode,setReadingMode]=useState(false);
   const seekRef=useRef<((ref:AyahRef)=>void)|null>(null);
   const quranFullRef=useRef<HTMLDivElement>(null);
+  const mushafScrollRef = useRef<HTMLDivElement>(null);
   const fsProgressRef=useRef<HTMLDivElement>(null);
   const previewRef=useRef<HTMLAudioElement|null>(null);
   const fpProgressRef=useRef<HTMLDivElement|null>(null);
@@ -1901,6 +1903,27 @@ export default function Home() {
   useEffect(()=>{
     document.documentElement.className = dark ? "dark" : "light";
   },[dark]);
+
+  // Reading mode: header compresses when user scrolls down in Quran text
+  useEffect(()=>{
+    const el = mushafScrollRef.current;
+    if (!el) return;
+    let lastY = 0;
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(()=>{
+        const dy = el.scrollTop - lastY;
+        if (dy > 30) setReadingMode(true);
+        else if (dy < -20 || el.scrollTop < 20) setReadingMode(false);
+        lastY = el.scrollTop;
+        ticking = false;
+      });
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  },[step]);
 
   useEffect(()=>{
     // Fixed device ID — single user, all browsers share the same history
@@ -2079,7 +2102,7 @@ export default function Home() {
   const fmtPlayerTime=(s:number)=>`${Math.floor(s/60)}:${Math.floor(s%60).toString().padStart(2,"0")}`;
 
   return (
-    <div className={`app${dark?" dark":" light"}`}>
+    <div className={`app${dark?" dark":" light"}${readingMode?" reading-mode":""}`}>
       <Stars show={dark}/>
       <IslamicPattern opacity={dark?0.032:0.05}/>
 
@@ -2542,17 +2565,22 @@ export default function Home() {
 @import url('https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Amiri+Quran&family=Amiri:wght@400;700&family=Scheherazade+New:wght@400;700&display=swap');
 @font-face{font-family:'UthmanicHafs';src:url('https://verses.quran.foundation/fonts/quran/hafs/uthmanic_hafs/UthmanicHafs1Ver18.woff2') format('woff2');font-display:swap}
 /* extra vars not in globals */
-:root{--fq:'UthmanicHafs','Amiri Quran','Scheherazade New','Traditional Arabic',serif;--r:16px;--r8:8px;--r24:24px;--trans:.28s}
+:root{--fq:'UthmanicHafs','Amiri Quran','Scheherazade New','Traditional Arabic',serif;--r:16px;--r8:8px;--r24:24px;--trans:.28s;--content-max:1280px;--reader-max:860px}
 /* Arabic rendering baseline */
-*{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+*{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;-webkit-tap-highlight-color:transparent}
 .star{position:absolute;background:var(--gold3);border-radius:50%;opacity:0;animation:tw var(--dur,3s) var(--delay,0s) infinite ease-in-out}
 @keyframes tw{0%,100%{opacity:0;transform:scale(.3)}50%{opacity:.55;transform:scale(1)}}
 svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
-.app{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column}
+.app{position:relative;z-index:1;min-height:100dvh;display:flex;flex-direction:column}
 
 /* HEADER */
-.hdr{background:var(--hdr-bg);backdrop-filter:blur(16px) saturate(1.4);border-bottom:1px solid var(--border);z-index:10;position:relative}
-.hdr-inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;padding:22px 28px 18px;gap:16px}
+.hdr{background:var(--hdr-bg);backdrop-filter:blur(16px) saturate(1.4);-webkit-backdrop-filter:blur(16px) saturate(1.4);border-bottom:1px solid var(--border);z-index:10;position:relative;transition:padding var(--trans),opacity var(--trans)}
+.hdr-inner{max-width:var(--content-max);margin:0 auto;display:flex;align-items:center;justify-content:space-between;padding:18px 28px 14px;gap:16px}
+/* reading-mode: header compresses */
+.reading-mode .hdr-inner{padding:8px 20px}
+.reading-mode .hdr-title{font-size:1.1rem}
+.reading-mode .hdr-sub{display:none}
+.reading-mode .hdr-center{gap:0}
 .hdr-center{text-align:center;flex:1;display:flex;flex-direction:column;align-items:center;gap:3px}
 .hdr-orn{color:var(--gold)}
 .hdr-title{font-family:var(--ff);font-size:clamp(1.9rem,4vw,3rem);font-weight:700;color:var(--gold2);text-shadow:0 0 50px rgba(201,168,76,.28),0 2px 0 rgba(0,0,0,.3);line-height:1.1;letter-spacing:.025em}
@@ -2562,10 +2590,13 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .theme-btn:hover{border-color:var(--gold);transform:rotate(20deg) scale(1.1)}
 
 /* STEP BAR — segmented pill */
-.sb-wrap{position:sticky;top:0;z-index:20;background:var(--hdr-bg);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);padding:10px 24px}
+.sb-wrap{position:sticky;top:0;z-index:20;background:var(--hdr-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--border);padding:8px 24px;transition:all var(--trans)}
+.reading-mode .sb-wrap{padding:4px 12px}
+.reading-mode .sb-seg{padding:4px 10px;font-size:.7rem}
+.reading-mode .sb-icon{display:none}
 .stepbar{display:flex;justify-content:center}
 .sb-track{display:inline-flex;align-items:center;background:var(--bg3);border:1px solid var(--border);border-radius:40px;padding:4px;gap:0;box-shadow:0 2px 8px rgba(0,0,0,.06)}
-.sb-seg{display:flex;align-items:center;gap:6px;padding:8px 18px;border-radius:32px;font-size:.8rem;color:var(--textD);transition:all .28s;user-select:none;white-space:nowrap;letter-spacing:.01em}
+.sb-seg{display:flex;align-items:center;gap:6px;padding:8px 18px;border-radius:32px;font-size:.8rem;color:var(--textD);transition:all .28s;user-select:none;white-space:nowrap;letter-spacing:.01em;min-height:44px;cursor:pointer}
 .sb-seg.active{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#fff;font-weight:700;box-shadow:0 3px 12px rgba(201,168,76,.3)}
 .dark .sb-seg.active{color:#0d1826}
 .sb-seg.done{color:var(--teal2);font-weight:500}
@@ -2575,23 +2606,23 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .sb-sep.lit{color:var(--gold);opacity:1}
 
 /* WIZARD */
-.wizard{flex:1;display:flex;justify-content:center;align-items:flex-start;padding:28px 16px 140px}
+.wizard{flex:1;display:flex;justify-content:center;align-items:flex-start;padding:24px 16px var(--player-clearance);max-width:var(--content-max);margin:0 auto;width:100%}
 @keyframes sFwd{from{opacity:0;transform:translateX(48px)}to{opacity:1;transform:translateX(0)}}
 @keyframes sBwd{from{opacity:0;transform:translateX(-48px)}to{opacity:1;transform:translateX(0)}}
 .slide-fwd{animation:sFwd .32s cubic-bezier(.22,.68,0,1.2) both}
 .slide-bwd{animation:sBwd .32s cubic-bezier(.22,.68,0,1.2) both}
 
 /* CARD */
-.wcard{width:100%;max-width:720px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r24);overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.3),0 0 40px rgba(201,168,76,.08);transition:background var(--trans)}
-.light .wcard{box-shadow:0 4px 24px rgba(90,69,32,.12),0 1px 4px rgba(0,0,0,.06)}
-.wcard.wide{max-width:1120px}
+.wcard{width:100%;max-width:740px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r24);overflow:hidden;box-shadow:var(--shadow-card);transition:background var(--trans)}
+.light .wcard{box-shadow:var(--shadow-card)}
+.wcard.wide{max-width:min(1100px,calc(100vw - 32px))}
 .wcard-hdr{display:flex;align-items:center;gap:14px;padding:20px 26px;border-bottom:1px solid var(--border);background:linear-gradient(135deg,rgba(201,168,76,.06),transparent 60%);position:relative}
 .wcard-hdr::before{content:'';position:absolute;top:0;right:0;left:0;height:2px;background:linear-gradient(90deg,transparent,var(--gold),transparent);opacity:.35}
 .wcard-icon{font-size:1.9rem;flex-shrink:0}
 .wcard-title{font-size:1.1rem;font-weight:700;color:var(--gold2);margin-bottom:4px;letter-spacing:.025em}
 .light .wcard-title{color:var(--gold2)}
 .wcard-sub{font-size:.8rem;color:var(--textD);line-height:1.65}.wcard-sub strong{color:var(--teal3)}
-.wcard-body{padding:22px 26px;max-height:calc(100vh - 330px);overflow-y:auto}
+.wcard-body{padding:20px 24px;max-height:calc(100dvh - 300px);overflow-y:auto;overscroll-behavior:contain}
 .wcard-footer{display:flex;justify-content:space-between;align-items:center;padding:14px 26px;border-top:1px solid var(--border);background:rgba(0,0,0,.04)}
 .light .wcard-footer{background:rgba(90,69,32,.03)}
 .btn-edit{background:none;border:1px solid var(--border);border-radius:20px;color:var(--gold);font-family:var(--ff);font-size:.72rem;padding:5px 14px;cursor:pointer;transition:all .2s}
@@ -2631,20 +2662,24 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .fp-fs-hidden{display:none!important}
 
 /* BUTTONS */
-.btn-next{background:linear-gradient(135deg,var(--teal),var(--teal2));border:none;border-radius:11px;color:#fff;font-family:var(--ff);font-size:.92rem;font-weight:600;padding:12px 24px;cursor:pointer;transition:all .25s;box-shadow:0 4px 14px rgba(42,157,143,.25);letter-spacing:.02em}
+.btn-next{background:linear-gradient(135deg,var(--teal),var(--teal2));border:none;border-radius:11px;color:#fff;font-family:var(--ff);font-size:.92rem;font-weight:600;padding:12px 24px;cursor:pointer;transition:background .25s,transform .25s,box-shadow .25s;box-shadow:0 4px 14px rgba(42,157,143,.25);letter-spacing:.02em;min-height:44px}
 .btn-next:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 24px rgba(42,157,143,.4)}
 .btn-next:disabled{opacity:.28;cursor:not-allowed}
-.btn-prev{background:var(--bg3);border:1px solid var(--border);border-radius:11px;color:var(--textD);font-family:var(--ff);font-size:.86rem;padding:11px 20px;cursor:pointer;transition:all .22s;letter-spacing:.01em}
+.btn-prev{background:var(--bg3);border:1px solid var(--border);border-radius:11px;color:var(--textD);font-family:var(--ff);font-size:.86rem;padding:11px 20px;cursor:pointer;transition:background .22s,transform .22s,box-shadow .22s;letter-spacing:.01em;min-height:44px}
 .btn-prev:hover{border-color:rgba(201,168,76,.3);color:var(--text)}
 .btn-gen{width:100%;padding:15px;background:linear-gradient(135deg,var(--goldD),var(--gold));border:none;border-radius:12px;color:#0c1020;font-family:var(--ff);font-size:1rem;font-weight:700;cursor:pointer;transition:all .25s;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 20px rgba(201,168,76,.25)}
 .btn-gen:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(201,168,76,.35)}
 .btn-reset{width:100%;padding:10px;background:none;border:1px solid var(--border);border-radius:10px;color:var(--textD);font-family:var(--ff);font-size:.82rem;cursor:pointer;margin-top:10px;transition:all .2s}
 .btn-reset:hover{border-color:var(--gold);color:var(--gold)}
 
-/* RECITER GRID */
-.rg{display:grid;grid-template-columns:repeat(auto-fill,minmax(124px,1fr));gap:10px}
-.rc{background:var(--bg3);border:1.5px solid var(--border);border-radius:14px;padding:13px 10px 10px;cursor:pointer;text-align:center;transition:all .22s;position:relative;overflow:hidden}
-.rc:hover{border-color:rgba(201,168,76,.3);transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,.2)}
+/* RECITER GRID — mobile:2col, tablet:3col, desktop:4col, xl:5col */
+.rg{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+@media(min-width:480px){.rg{grid-template-columns:repeat(3,1fr)}}
+@media(min-width:768px){.rg{grid-template-columns:repeat(4,1fr);gap:12px}}
+@media(min-width:1200px){.rg{grid-template-columns:repeat(5,1fr)}}
+.rc{background:var(--bg3);border:1.5px solid var(--border);border-radius:14px;padding:14px 10px 11px;cursor:pointer;text-align:center;transition:border-color .22s,transform .22s,box-shadow .22s;position:relative;overflow:hidden;min-height:44px}
+.rc:hover{border-color:rgba(201,168,76,.3);transform:translateY(-2px);box-shadow:var(--shadow-md)}
+@media(hover:none){.rc:hover{transform:none;box-shadow:none}}
 .rc.sel{box-shadow:0 0 0 2px rgba(201,168,76,.25),0 8px 24px rgba(0,0,0,.2)}
 .rc-avatar-wrap{width:66px;height:66px;border-radius:50%;margin:0 auto 10px;position:relative;border:2px solid transparent;transition:border-color .25s;overflow:hidden}
 .rc-check{position:absolute;bottom:1px;right:1px;width:19px;height:19px;border-radius:50%;background:var(--teal2);color:#fff;font-size:.6rem;display:flex;align-items:center;justify-content:center;border:2px solid var(--bg-card)}
@@ -2711,55 +2746,49 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .light .arp-sc strong{color:#7a5018}
 
 /* LISTEN LAYOUT */
-.listen-layout-full{display:block;padding-bottom:140px}
-.listen-layout-full .qtext-col{border-left:none}
+.listen-layout-full{display:block;padding-bottom:var(--player-clearance)}
+.listen-layout-full .qtext-col{border-left:none;max-width:var(--reader-max);margin:0 auto}
 /* keep old class for hifd fallback */
 .listen-layout{display:grid;grid-template-columns:1fr 1fr;min-height:520px}
 
-/* ══════════════ MINIMALIST PLAYER — PLATFORM COLORS ══════════════ */
-/* ══ FLOATING GLASS PILL — Apple Music / VisionOS style ══ */
+/* ══════════════ FLOATING GLASS PLAYER ══════════════ */
 .float-player{
   position:fixed;
-  bottom:24px;
+  /* safe-area-inset-bottom keeps it above home indicator on iPhone */
+  bottom:calc(12px + var(--sab));
   left:50%;
-  width:calc(100vw - 48px);
+  width:calc(100% - 24px);
   max-width:900px;
   transform:translateX(-50%);
   z-index:9999;
   pointer-events:auto;
-  transition:opacity .24s ease;
+  /* use only transform/opacity for 60fps animation */
+  will-change:transform;
+  transition:opacity .24s ease,bottom .28s ease;
 }
+/* reading mode: player shrinks to minimal strip */
+.reading-mode .float-player{bottom:calc(6px + var(--sab))}
 
 /* VisionOS layered glass pill */
 .fp-glass{
   background:
-    radial-gradient(ellipse 110% 80% at 10% -8%,rgba(42,157,143,.13),transparent 52%),
-    radial-gradient(ellipse 70% 90% at 88% 110%,rgba(201,168,76,.09),transparent 52%),
+    radial-gradient(ellipse 110% 80% at 10% -8%,rgba(42,157,143,.12),transparent 52%),
     rgba(4,9,20,.88);
-  backdrop-filter:blur(34px) saturate(175%) brightness(.91);
-  -webkit-backdrop-filter:blur(34px) saturate(175%) brightness(.91);
-  border-radius:28px;
+  backdrop-filter:blur(28px) saturate(160%);
+  -webkit-backdrop-filter:blur(28px) saturate(160%);
+  border-radius:24px;
   border:1px solid rgba(255,255,255,.09);
-  border-top-color:rgba(255,255,255,.22);
+  border-top-color:rgba(255,255,255,.2);
   overflow:hidden;
-  box-shadow:
-    0 44px 88px rgba(0,0,0,.62),
-    0 14px 32px rgba(0,0,0,.42),
-    0 4px 8px rgba(0,0,0,.24),
-    inset 0 1px 0 rgba(255,255,255,.15),
-    0 0 0 1px rgba(201,168,76,.07);
-  transition:border-radius .38s ease,box-shadow .24s ease,max-height .42s cubic-bezier(.4,0,.2,1);
-  max-height:88px;
+  /* simplified shadow for 60fps scroll */
+  box-shadow:var(--shadow-player),inset 0 1px 0 rgba(255,255,255,.13);
+  /* use max-height not height to avoid layout shifts */
+  transition:border-radius .3s ease,max-height .4s cubic-bezier(.4,0,.2,1);
+  max-height:80px;
+  /* promote to its own layer */
+  will-change:max-height;
 }
-.fp-glass:hover{
-  box-shadow:
-    0 52px 100px rgba(0,0,0,.66),
-    0 18px 40px rgba(0,0,0,.46),
-    0 4px 8px rgba(0,0,0,.24),
-    inset 0 1px 0 rgba(255,255,255,.2),
-    0 0 0 1px rgba(201,168,76,.14);
-}
-.fp-glass.fp-expanded{border-radius:24px;max-height:70vh}
+.fp-glass.fp-expanded{border-radius:22px;max-height:72dvh}
 
 .light .fp-glass{
   background:
@@ -2788,8 +2817,8 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .light .fp-prog-track{background:rgba(0,0,0,.1)}
 .fp-prog-fill{position:absolute;top:0;left:0;bottom:0;width:0%;background:linear-gradient(90deg,var(--teal2),var(--gold));transition:width .1s linear}
 
-/* main row — direction:rtl from body: controls on right, chevron on left */
-.fp-row{display:flex;align-items:center;padding:12px 18px 16px;gap:10px;min-height:72px;height:82px}
+/* main row — collapsed height: 56–64px mobile */
+.fp-row{display:flex;align-items:center;padding:10px 16px 14px;gap:10px;min-height:56px;height:var(--player-h)}
 .fp-main{display:flex;align-items:center;flex-shrink:0}
 
 /* info: mini art square + text */
@@ -2904,7 +2933,7 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .mushaf-basmala{font-family:var(--fq);font-size:1.55rem;text-align:center;direction:rtl;color:var(--text);padding:12px 0 16px;display:block;border-bottom:1px solid var(--border);margin-bottom:12px;letter-spacing:.02em}
 .light .mushaf-basmala{color:#1e1608}
 /* quran text */
-.mushaf-text-wrap{overflow-y:auto;max-height:min(560px,calc(100vh - 320px));padding-left:2px;padding-bottom:160px}
+.mushaf-text-wrap{overflow-y:auto;max-height:min(560px,calc(100dvh - 300px));padding-left:2px;padding-bottom:var(--player-clearance);overscroll-behavior:contain}
 .mushaf-text{font-family:var(--fq);font-size:1.7rem;line-height:3.15;text-align:justify;text-align-last:right;direction:rtl;color:var(--text);word-break:break-word;word-spacing:.06em;padding:4px 0}
 .light .mushaf-text{color:#1a1208}
 /* ayah verse inline spans */
@@ -3052,53 +3081,146 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .footer-sub{font-size:.68rem;color:var(--textDD);letter-spacing:.01em}.fl{color:var(--teal3)}
 .footer-bismillah{font-family:var(--fq);font-size:1.18rem;color:var(--gold);opacity:.52;margin-top:5px;letter-spacing:.02em}
 
-/* RESPONSIVE */
-@media(max-width:768px){
+/* ══════════════════════════════════════════════════════════════
+   RESPONSIVE — mobile-first breakpoints
+   mobile  < 480px
+   phone   480–767px
+   tablet  768–1023px
+   desktop 1024–1439px
+   xl      1440px+
+══════════════════════════════════════════════════════════════ */
+
+/* ── Mobile < 480px ──────────────────────────────────────── */
+@media(max-width:479px){
+  /* Header: 40% height reduction */
+  .hdr-inner{padding:10px 14px 8px}
+  .hdr-title{font-size:1.45rem}
+  .hdr-sub{display:none}
+  .hdr-center{gap:1px}
+
+  /* Stepper: icon-only compact */
+  .sb-wrap{padding:5px 10px}
+  .sb-track{gap:1px}
+  .sb-seg{padding:5px 9px;font-size:.7rem;gap:3px}
+  .sb-sep{margin:0 -2px}
+
+  /* Wizard */
+  .wizard{padding:12px 10px var(--player-clearance)}
+  .wcard{border-radius:16px}
+  .wcard-hdr{padding:14px 16px}
+  .wcard-body{padding:14px 14px;max-height:calc(100dvh - 240px)}
+  .wcard-footer{padding:10px 14px}
+
+  /* Reciter grid already set to 2col above */
+
+  /* Float player mobile spec: 56px height */
+  .fp-row{padding:8px 12px 12px;gap:6px;min-height:52px;height:60px}
+  .fp-orn{display:none}
+  .fp-title{font-size:.78rem;max-width:90px}
+  .fp-ayah,.fp-status-lbl{font-size:.6rem}
+  .fp-play-btn{width:36px;height:36px}
+  .fp-loading-dot{width:36px;height:36px}
+  .fp-time{display:none}
+  .fp-speed-mini{max-width:80px;gap:2px}
+  .fp-speed-btn{font-size:.58rem;padding:4px 6px}
+  .fp-toggle-mini{font-size:0;width:30px;height:30px;padding:0;justify-content:center;border-radius:50%;min-width:30px;min-height:30px}
+  .fp-toggle-mark{width:8px;height:8px}
+  .fp-chevron{padding:5px}
+  .fp-cta{font-size:.7rem;padding:7px 12px}
+  .fp-details-inner{padding:10px 12px 6px}
+  .fp-details .sp-wf{height:56px}
+
+  /* Quran reader */
+  .mushaf-page{padding:8px}
+  .mushaf-inner{padding:10px 11px 8px}
+  .mushaf-text{font-size:1.45rem;line-height:2.85}
+  .mushaf-text-wrap{max-height:calc(100dvh - 280px)}
   .listen-layout{grid-template-columns:1fr}
   .qtext-col{border-left:none;border-bottom:1px solid var(--border)}
-  .mushaf-text{font-size:1.52rem;line-height:2.9}
-  .mushaf-text-wrap{max-height:220px;padding-bottom:160px}.mushaf-page{padding:10px}.mushaf-inner{padding:11px 13px 9px}
-  .hifd-ayah-text{font-size:1.55rem;line-height:2.9}
-  .hifd-words{font-size:1.25rem;line-height:2.4}
-  .hifd-corr-text{font-size:1.25rem;line-height:2.6}
-  .float-player{bottom:20px;width:calc(100vw - 20px);max-width:none}
-  .fp-glass{border-radius:22px}.fp-glass.fp-expanded{border-radius:20px}
-  .fp-orn{width:30px;height:30px;border-radius:8px}
-  .fp-row{padding:9px 10px 13px;gap:7px;min-height:72px;height:82px}
-  .fp-info{flex:1;min-width:0}.fp-title{font-size:.8rem}
-  .fp-play-btn{width:38px;height:38px}
-  .fp-loading-dot{width:38px;height:38px}
-  .fp-cta{font-size:.74rem;padding:8px 14px}
-  .fp-time{font-size:.62rem}
-  .fp-speed-mini{max-width:112px;gap:3px}
-  .fp-speed-btn{font-size:.6rem;padding:5px 7px}
-  .fp-toggle-mini{font-size:0;width:32px;height:32px;padding:0;justify-content:center;border-radius:50%}
-  .fp-toggle-mark{width:8px;height:8px}
-  .fp-chevron{padding:6px}
-  .fp-details-inner{padding:12px 12px 8px}
-  .fp-details .sp-wf{height:62px}
-  .wcard{border-radius:16px}.wcard.wide{border-radius:16px}
-  .rg{grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:8px}
-  .wcard-body{max-height:calc(100vh - 280px)}
-  .arp-selects{grid-template-columns:1fr 1fr;gap:8px}.arp-dash{display:none}
-  .sb-track{flex-wrap:wrap;justify-content:center;gap:2px}
-  .sb-seg{padding:6px 12px;font-size:.74rem}
-  .hdr-inner{padding:16px 16px 14px}.hdr-title{font-size:1.75rem}
+
+  /* HIFD */
+  .hifd-wrap{padding:12px 12px}
+  .hifd-ayah-text{font-size:1.35rem;line-height:2.75}
+  .hifd-words{font-size:1.1rem;line-height:2.3;padding:12px 14px}
+  .hifd-corr-text{font-size:1.1rem;line-height:2.5;padding:12px}
+
+  /* Misc */
+  .arp-selects{grid-template-columns:1fr 1fr;gap:6px}
+  .arp-dash{display:none}
+  .arp-summary{grid-template-columns:1fr 1fr}
   .ayah-actions{flex-direction:column}
-  .btn-next{font-size:.86rem;padding:11px 18px}
-  .btn-prev{font-size:.82rem;padding:10px 16px}
+  .btn-next{font-size:.84rem;padding:10px 16px;min-height:44px}
+  .btn-prev{font-size:.8rem;padding:9px 14px;min-height:44px}
+  .mode-cards{grid-template-columns:1fr;gap:10px}
 }
-@media(max-width:480px){
-  .rg{grid-template-columns:repeat(3,1fr)}.arp-summary{grid-template-columns:1fr 1fr}
-  .fp-orn{display:none}
-  .fp-title{max-width:100px}
-  .fp-ayah,.fp-status-lbl{font-size:.61rem}
-  .fp-speed-mini{max-width:88px}
-  .mushaf-text{font-size:1.42rem;line-height:2.8}
+
+/* ── Phone 480–767px ─────────────────────────────────────── */
+@media(min-width:480px) and (max-width:767px){
+  .hdr-inner{padding:12px 18px 10px}
+  .hdr-title{font-size:1.7rem}
+  .hdr-sub{font-size:.75rem}
+  .sb-wrap{padding:6px 16px}
+  .sb-seg{padding:6px 11px;font-size:.73rem}
+  .wizard{padding:16px 14px var(--player-clearance)}
+  .wcard{border-radius:18px}
+  .wcard-body{padding:16px 18px;max-height:calc(100dvh - 260px)}
+  .fp-row{padding:9px 14px 13px;gap:7px;min-height:54px;height:64px}
+  .fp-orn{width:28px;height:28px;border-radius:7px}
+  .fp-title{font-size:.79rem}
+  .fp-play-btn{width:38px;height:38px}
+  .fp-time{font-size:.6rem}
+  .fp-speed-mini{max-width:100px}
+  .mushaf-text{font-size:1.5rem;line-height:2.9}
+  .mushaf-text-wrap{max-height:calc(100dvh - 290px)}
+  .listen-layout{grid-template-columns:1fr}
+  .qtext-col{border-left:none;border-bottom:1px solid var(--border)}
   .hifd-ayah-text{font-size:1.45rem}
+  .hifd-words{font-size:1.2rem}
+  .arp-selects{grid-template-columns:1fr 1fr;gap:8px}
+  .arp-dash{display:none}
+  .btn-next{min-height:44px}
+  .btn-prev{min-height:44px}
 }
-@media(max-width:768px){
-  .hifd-wrap{padding:16px 14px}.hifd-ayah-text{font-size:1.35rem}.hifd-words{font-size:1.1rem}
+
+/* ── Tablet 768–1023px ───────────────────────────────────── */
+@media(min-width:768px) and (max-width:1023px){
+  .hdr-inner{padding:14px 24px 12px}
+  .hdr-title{font-size:2rem}
+  .sb-wrap{padding:8px 24px}
+  .wizard{padding:20px 20px var(--player-clearance)}
+  .wcard{border-radius:20px}
+  .wcard.wide{border-radius:20px}
+  .wcard-body{max-height:calc(100dvh - 280px)}
+  .fp-row{padding:10px 16px 14px;gap:8px}
+  .listen-layout{grid-template-columns:1fr}
+  .qtext-col{border-left:none}
+  .mushaf-text{font-size:1.6rem;line-height:3.05}
+  .mushaf-text-wrap{max-height:calc(100dvh - 300px)}
+  .hifd-ayah-text{font-size:1.65rem}
+  .float-player{max-width:680px}
+}
+
+/* ── Desktop 1024px+ ─────────────────────────────────────── */
+@media(min-width:1024px){
+  .hdr-inner{padding:18px 32px 14px}
+  .wizard{padding:28px 24px var(--player-clearance)}
+  .wcard-body{max-height:calc(100dvh - 310px)}
+  /* Quran reader max-width for comfortable reading line length */
+  .listen-layout-full .qtext-col{max-width:var(--reader-max)}
+  .mushaf-text{font-size:1.72rem}
+  .float-player{bottom:calc(24px + var(--sab));max-width:860px}
+  .fp-row{padding:12px 20px 16px;height:72px}
+  .btn-next:hover:not(:disabled){transform:translateY(-2px)}
+  .rc:hover{transform:translateY(-2px)}
+}
+
+/* ── XL 1440px+ ──────────────────────────────────────────── */
+@media(min-width:1440px){
+  .hdr-inner{padding:20px 40px 16px}
+  .wizard{padding:32px 32px var(--player-clearance)}
+  .wcard.wide{max-width:1160px}
+  .listen-layout-full .qtext-col{max-width:900px}
+  .mushaf-text{font-size:1.78rem}
 }
 
 /* LISTEN MODE TABS */

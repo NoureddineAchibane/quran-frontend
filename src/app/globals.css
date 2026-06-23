@@ -1,17 +1,46 @@
+/* ─── Reset ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* Dark defaults on :root, light overrides on html.light */
+/* ─── Design tokens ──────────────────────────────────────── */
 :root {
+  /* Colors */
   --bg0:#03060a;--bg1:#060b12;--bg2:#09111c;--bg3:#0d1826;--bg4:#111f2e;--bg5:#162334;
-  --bg-card:rgba(9,17,28,.97);--text:#ddd0a8;--textD:#9a8b6a;--textDD:#6a5d48;
+  --bg-card:rgba(9,17,28,.97);
+  --text:#ddd0a8;--textD:#9a8b6a;--textDD:#6a5d48;
   --border:rgba(201,168,76,.12);--border2:rgba(201,168,76,.28);
   --hdr-bg:rgba(3,6,10,.92);--input-bg:#0d1826;--pat-color:#c9a84c;
   --gold:#c9a84c;--gold2:#e2c06a;--gold3:#f5d98a;--goldD:#7a601a;
   --teal:#1a7a70;--teal2:#2a9d8f;--teal3:#3fc4b4;
   --ff:'Noto Naskh Arabic','Amiri',serif;
-  --r-sm:8px;--r-md:14px;--r-lg:20px;
+
+  /* Spacing */
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:20px;--sp-6:24px;--sp-7:32px;--sp-8:48px;
+
+  /* Radius */
+  --r-xs:6px;--r-sm:8px;--r-md:14px;--r-lg:20px;--r-xl:24px;--r-full:999px;
+
+  /* Shadows */
+  --shadow-sm:0 2px 8px rgba(0,0,0,.18);
+  --shadow-md:0 8px 28px rgba(0,0,0,.28);
+  --shadow-lg:0 24px 64px rgba(0,0,0,.42),0 8px 24px rgba(0,0,0,.24);
+  --shadow-player:0 20px 48px rgba(0,0,0,.52),0 6px 16px rgba(0,0,0,.28);
+  --shadow-card:0 24px 80px rgba(0,0,0,.3),0 0 40px rgba(201,168,76,.08);
+
+  /* Safe area insets */
+  --sat:env(safe-area-inset-top,0px);
+  --sar:env(safe-area-inset-right,0px);
+  --sab:env(safe-area-inset-bottom,0px);
+  --sal:env(safe-area-inset-left,0px);
+
+  /* Player clearance — used wherever content must not be hidden behind player */
+  --player-h:68px;
+  --player-clearance:calc(var(--player-h) + 16px + var(--sab) + 16px);
+
+  /* Transitions */
+  --trans:.28s;--trans-fast:.15s;
 }
 
+/* ─── Light theme ─────────────────────────────────────────── */
 html.light {
   --bg0:#f5f0e8;--bg1:#ede4d3;--bg2:#fdfbf8;--bg3:#efe8d8;--bg4:#e6dcc8;--bg5:#d8cdb0;
   --bg-card:#fdfbf8;--text:#1a1208;--textD:#5a4520;--textDD:#9a8460;
@@ -19,15 +48,22 @@ html.light {
   --hdr-bg:rgba(245,240,232,.96);--input-bg:#efe8d8;--pat-color:#7a6018;
   --gold:#b08828;--gold2:#8a6010;--gold3:#c9a84c;--goldD:#5a3c08;
   --teal:#0e6560;--teal2:#197a72;--teal3:#1e9080;
+  --shadow-card:0 4px 24px rgba(90,69,32,.12),0 1px 4px rgba(0,0,0,.06);
 }
 
-html { scroll-behavior: smooth; }
+/* ─── Base ───────────────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+  /* prevent rubber-band layout shift on iOS */
+  overscroll-behavior-y: none;
+}
 
 body {
   background: var(--bg0);
   color: var(--text);
   font-family: var(--ff);
-  min-height: 100vh;
+  /* 100dvh: Safari iOS fix — real viewport height, accounts for collapsing toolbar */
+  min-height: 100dvh;
   overflow-x: hidden;
   direction: rtl;
   text-align: right;
@@ -36,16 +72,34 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  transition: background .28s, color .28s;
+  transition: background var(--trans), color var(--trans);
 }
 
-/* Refined scrollbar */
-::-webkit-scrollbar { width: 5px; }
+/* ─── Arabic ligatures ───────────────────────────────────── */
+:lang(ar), [lang="ar"] {
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--goldD); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--gold); }
 
-/* Arabic font feature settings for better rendering */
-:lang(ar), [lang="ar"] {
-  font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+/* ─── Focus-visible ring ─────────────────────────────────── */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
+  border-radius: var(--r-xs);
+}
+
+/* ─── prefers-reduced-motion ─────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
