@@ -812,58 +812,37 @@ function compareAyah(original: string, recognized: string): WordResult[] {
 }
 
 /* ════════════════════════════════════════════════════════════
-   RECITER PHOTOS — Wikipedia REST API page/summary (free, CORS-enabled)
-   Falls back to SVG avatar on error
+   RECITER PHOTOS — static assets in /public/reciters/
+   Falls back to SVG avatar with initials when no photo exists
 ════════════════════════════════════════════════════════════ */
 
-// Wikipedia English article titles for pageimages lookup
-const RECITER_WIKI: Record<number,string> = {
-  1:  "Abdul_Basit_%27Abd_us-Samad",
-  2:  "Abdul_Basit_%27Abd_us-Samad",
-  3:  "Abdul_Rahman_Al-Sudais",
-  4:  "Abu_Bakr_al-Shatri",
-  5:  "Hani_ar-Rifai",
-  6:  "Mahmoud_Khalil_Al-Hussary",
-  7:  "Mishari_bin_Rashid_Alafasy",
-  8:  "Mohamed_Siddiq_El-Minshawi",
-  9:  "Mohamed_Siddiq_El-Minshawi",
-  10: "Saud_Al-Shuraim",
-  11: "Maher_Al-Muaiqly",
-  12: "Mahmoud_Khalil_Al-Hussary",
-  13: "Saad_Al-Ghamdi",
-  14: "Yasser_Ad-Dussary",
-  15: "Nasser_Al-Qatami",
+// Static photo map — IDs without an entry (4, 5) use the SVG fallback
+const RECITER_PHOTOS: Record<number, string> = {
+  1:  "/reciters/1.png",   // Abdul Basit Abd us-Samad (murattal)
+  2:  "/reciters/2.png",   // Abdul Basit Abd us-Samad (mujawwad)
+  3:  "/reciters/3.png",   // Abdul Rahman Al-Sudais
+  // 4 Abu Bakr Al-Shatri — no public photo found, SVG fallback
+  // 5 Hani ar-Rifai      — no public photo found, SVG fallback
+  6:  "/reciters/6.png",   // Mahmoud Khalil Al-Hussary (murattal)
+  7:  "/reciters/7.png",   // Mishary Alafasy
+  8:  "/reciters/8.png",   // Mohamed Siddiq El-Minshawi (mujawwad)
+  9:  "/reciters/9.png",   // Mohamed Siddiq El-Minshawi (murattal)
+  10: "/reciters/10.png",  // Saud Al-Shuraym
+  11: "/reciters/11.png",  // Maher Al-Muaiqly
+  12: "/reciters/12.png",  // Mahmoud Khalil Al-Hussary (muallim)
+  13: "/reciters/13.png",  // Saad Al-Ghamdi
+  14: "/reciters/14.png",  // Yasser Ad-Dussary
+  15: "/reciters/15.png",  // Nasser Al-Qatami
 };
-
-const wikiPhotoCache: Record<number,string|null> = {};
-
-async function fetchWikiPhoto(id: number): Promise<string|null> {
-  if (id in wikiPhotoCache) return wikiPhotoCache[id];
-  const title = RECITER_WIKI[id];
-  if (!title) { wikiPhotoCache[id] = null; return null; }
-  try {
-    const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${title}`);
-    if (!res.ok) { wikiPhotoCache[id] = null; return null; }
-    const data = await res.json();
-    const url = data?.thumbnail?.source ?? null;
-    wikiPhotoCache[id] = url;
-    return url;
-  } catch { wikiPhotoCache[id] = null; return null; }
-}
 
 function ReciterAvatar({ id, size=64 }:{ id:number; size?:number }) {
   const m = RECITERS_META[id];
-  const [photoUrl, setPhotoUrl] = useState<string|null>(wikiPhotoCache[id] ?? null);
+  const photoPath = RECITER_PHOTOS[id] ?? null;
   const [imgOk, setImgOk] = useState(true);
-
-  useEffect(()=>{
-    if (photoUrl || id in wikiPhotoCache) return;
-    fetchWikiPhoto(id).then(url => { if(url) setPhotoUrl(url); });
-  }, [id]);
 
   if(!m) return null;
 
-  if (!photoUrl || !imgOk) {
+  if (!photoPath || !imgOk) {
     const r = size/2, fs = size*0.32;
     return (
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} xmlns="http://www.w3.org/2000/svg">
@@ -891,7 +870,7 @@ function ReciterAvatar({ id, size=64 }:{ id:number; size?:number }) {
 
   return (
     <img
-      src={photoUrl}
+      src={photoPath}
       alt={m.nameAr}
       width={size}
       height={size}
