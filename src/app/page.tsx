@@ -82,6 +82,7 @@ interface AyahText {
   surahNumber:number;
   surahName?:string;
 }
+type NotesMap = Record<string, string>; // "surah:ayah" → note text
 interface AyahRef { surah:number; ayah:number; }
 function toAr(n:number){ return String(n).replace(/\d/g,d=>"٠١٢٣٤٥٦٧٨٩"[+d]); }
 function ayahKey(ref:AyahRef){ return `${ref.surah}:${ref.ayah}`; }
@@ -211,6 +212,15 @@ const IcEdit = ({s=15,c="currentColor"}:IcProps) => (
   <svg width={s} height={s} viewBox="0 0 15 15" fill="none">
     <path d="M10 2.5L12.5 5L5.5 12H3V9.5L10 2.5Z" stroke={c} strokeWidth="1.3" strokeLinejoin="round" fill={c} fillOpacity=".18"/>
     <line x1="1" y1="14" x2="14" y2="14" stroke={c} strokeWidth="1.2" strokeLinecap="round" opacity=".35"/>
+  </svg>
+);
+const IcNote = ({s=16,c="currentColor"}:IcProps) => (
+  <svg width={s} height={s} viewBox="0 0 16 16" fill="none">
+    <path d="M3 2h7l3 3v9H3z" stroke={c} strokeWidth="1.2" fill={c} fillOpacity=".1" strokeLinejoin="round"/>
+    <path d="M10 2v3h3" stroke={c} strokeWidth="1.2" strokeLinejoin="round"/>
+    <line x1="5.5" y1="7" x2="10.5" y2="7" stroke={c} strokeWidth="1.1" strokeLinecap="round"/>
+    <line x1="5.5" y1="9.5" x2="10.5" y2="9.5" stroke={c} strokeWidth="1.1" strokeLinecap="round"/>
+    <line x1="5.5" y1="12" x2="8.5" y2="12" stroke={c} strokeWidth="1.1" strokeLinecap="round"/>
   </svg>
 );
 const IcEye = ({s=16,c="currentColor"}:IcProps) => (
@@ -1215,24 +1225,32 @@ function MaqasidPanel({ surahNum, surahName, ayahNum, ayahText }:{
 }
 
 /* ════════ QURAN TEXT PANEL ════════ */
-function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick, scrollRef }:{
+function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick, scrollRef, notes, onNoteChange, onNoteAyahSelect }:{
   ayahs:AyahText[]; surahNum:number; surahName:string;
   activeAyah:AyahRef|null; onAyahClick?:(ref:AyahRef)=>void;
   scrollRef?: React.RefObject<HTMLDivElement>;
+  notes?: NotesMap;
+  onNoteChange?: (surah:number, ayah:number, text:string|null)=>void;
+  onNoteAyahSelect?: (ref:AyahRef|null)=>void;
 }) {
   const [selectedAyah,setSelectedAyah] = useState<AyahRef|null>(null);
   const [tafsirWasOpen,setTafsirWasOpen] = useState(false);
   const [copied,setCopied] = useState(false);
+  const [noteEditMode,setNoteEditMode] = useState(false);
+  const [noteText,setNoteText] = useState('');
   const activeRef = useRef<HTMLSpanElement|null>(null);
 
   useEffect(()=>{ activeRef.current?.scrollIntoView({behavior:"smooth",block:"nearest"}); },[activeAyah]);
-  useEffect(()=>{ setCopied(false); },[selectedAyah]);
+  useEffect(()=>{ setCopied(false); setNoteEditMode(false); },[selectedAyah]);
 
   if(!ayahs.length) return null;
 
   const handleClick = (ref:AyahRef)=>{
-    setSelectedAyah(sameAyah(selectedAyah,ref)?null:ref);
+    const closing = sameAyah(selectedAyah,ref);
+    setSelectedAyah(closing?null:ref);
     onAyahClick?.(ref);
+    if(!closing && notes?.[ayahKey(ref)]) onNoteAyahSelect?.(ref);
+    else onNoteAyahSelect?.(null);
   };
   const selectedAyahText = selectedAyah
     ? ayahs.find(a=>a.surahNumber===selectedAyah.surah&&a.numberInSurah===selectedAyah.ayah)
@@ -1259,6 +1277,18 @@ function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick, s
     } catch {
       setCopied(false);
     }
+  };
+
+  const handleSaveNote = ()=>{
+    if(!selectedAyah||!noteText.trim())return;
+    onNoteChange?.(selectedAyah.surah, selectedAyah.ayah, noteText.trim());
+    setNoteEditMode(false);
+  };
+  const handleDeleteNote = ()=>{
+    if(!selectedAyah)return;
+    onNoteChange?.(selectedAyah.surah, selectedAyah.ayah, null);
+    setNoteText('');
+    setNoteEditMode(false);
   };
 
   const firstAyah = ayahs[0]?.numberInSurah ?? 1;
@@ -1315,16 +1345,19 @@ function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick, s
                   <p className="mushaf-text">
                     {group.ayahs.map(a=>{
                       const ref = {surah:a.surahNumber, ayah:a.numberInSurah};
+                      const key = `${a.surahNumber}:${a.numberInSurah}`;
                       const isActive = sameAyah(activeAyah,ref);
                       const isSelected = sameAyah(selectedAyah,ref);
+                      const hasNote = !!(notes?.[key]);
                       return (
-                        <span key={`${a.surahNumber}:${a.numberInSurah}`}
+                        <span key={key}
                           ref={isActive?activeRef:null}
-                          className={`qayah${isActive?" playing":""}${isSelected?" selected":""}`}
+                          className={`qayah${isActive?" playing":""}${isSelected?" selected":""}${hasNote?" has-note":""}`}
                           onClick={()=>handleClick(ref)}
                         >
                           {a.text}
                           <span className="mushaf-anum">{String.fromCodePoint(0x06DD)}{toAr(a.numberInSurah)}</span>
+                          {hasNote&&<span className="note-dot" aria-hidden="true"/>}
                         </span>
                       );
                     })}
@@ -1347,6 +1380,39 @@ function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick, s
             <button className={`copy-ayah-btn${copied?" copied":""}`} onClick={copySelectedAyah}>
               {copied ? "تم نسخ الآية" : "نسخ الآية"}
             </button>
+            {/* Note button / editor */}
+            {!noteEditMode ? (
+              <button className="note-trigger-btn" onClick={()=>{
+                setNoteText(notes?.[ayahKey(selectedAyah)]??'');
+                setNoteEditMode(true);
+              }}>
+                <IcNote s={14} c="currentColor"/>
+                {notes?.[ayahKey(selectedAyah)] ? 'تعديل الملاحظة' : 'إضافة ملاحظة'}
+              </button>
+            ) : (
+              <div className="note-editor">
+                <div className="note-editor-header">
+                  <IcNote s={13} c="var(--gold2)"/>
+                  <span>ملاحظتك على هذه الآية</span>
+                </div>
+                <textarea
+                  className="note-textarea"
+                  value={noteText}
+                  onChange={e=>setNoteText(e.target.value)}
+                  placeholder="اكتب ملاحظتك هنا... تأمّل، دعاء، معنى، فائدة"
+                  rows={3}
+                  autoFocus
+                  dir="rtl"
+                />
+                <div className="note-editor-btns">
+                  <button className="note-save-btn" onClick={handleSaveNote} disabled={!noteText.trim()}>حفظ</button>
+                  <button className="note-cancel-btn" onClick={()=>setNoteEditMode(false)}>إلغاء</button>
+                  {notes?.[ayahKey(selectedAyah)] && (
+                    <button className="note-delete-btn" onClick={handleDeleteNote}>حذف الملاحظة</button>
+                  )}
+                </div>
+              </div>
+            )}
             <TafsirPanel
               key={`tafsir-${ayahKey(selectedAyah)}`}
               surahNum={selectedAyah.surah} ayahNum={selectedAyah.ayah}
@@ -1360,6 +1426,43 @@ function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick, s
           </div>
         </div>
       )}
+
+    </div>
+  );
+}
+
+/* ════════ NOTES SIDEBAR ════════ */
+function NoteToast({ note, ayahRef }:{ note:string|null; ayahRef:AyahRef|null }) {
+  const [phase, setPhase] = useState<'hidden'|'in'|'out'>('hidden');
+  const [shown, setShown] = useState<{note:string; ref:AyahRef}|null>(null);
+  const [contentKey, setContentKey] = useState('');
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const phaseRef = useRef<'hidden'|'in'|'out'>('hidden');
+
+  useEffect(()=>{
+    clearTimeout(timerRef.current);
+    if(note && ayahRef){
+      setShown({note, ref:ayahRef});
+      setContentKey(`${ayahRef.surah}-${ayahRef.ayah}`);
+      phaseRef.current = 'in';
+      setPhase('in');
+    } else if(phaseRef.current !== 'hidden'){
+      phaseRef.current = 'out';
+      setPhase('out');
+      timerRef.current = setTimeout(()=>{ phaseRef.current='hidden'; setPhase('hidden'); }, 380);
+    }
+    return ()=>clearTimeout(timerRef.current);
+  },[note, ayahRef?.surah, ayahRef?.ayah]);
+
+  if(phase==='hidden' || !shown) return null;
+
+  return (
+    <div className={`note-toast nt-${phase}`} dir="rtl">
+      <span className="nt-star">✦</span>
+      <div className="nt-body">
+        <div className="nt-ref">{formatAyahRef(shown.ref)}</div>
+        <div key={contentKey} className="nt-text">{shown.note}</div>
+      </div>
     </div>
   );
 }
@@ -1898,6 +2001,8 @@ export default function Home() {
   const [sessionMode,setSessionMode]=useState<SessionMode|null>(null);
   const [deviceId,setDeviceId]=useState('');
   const [readingHistory,setReadingHistory]=useState<HistoryEntry[]>([]);
+  const [notes,setNotes]=useState<NotesMap>({});
+  const [clickedNoteRef,setClickedNoteRef]=useState<AyahRef|null>(null);
   const [showHistory,setShowHistory]=useState(false);
   const [justFinished,setJustFinished]=useState(false);
   const [isFullscreen,setIsFullscreen]=useState(false);
@@ -1944,6 +2049,11 @@ export default function Home() {
     setDeviceId(did);
     // sessionMode intentionally NOT restored from localStorage — each page load is a fresh جلسة
     fetch(`${API}/history?device_id=${encodeURIComponent(did)}`).then(r=>r.json()).then(setReadingHistory).catch(()=>{});
+    fetch(`${API}/notes?device_id=${encodeURIComponent(did)}`).then(r=>r.json()).then((rows:Array<{surah_num:number;ayah_num:number;note_text:string}>)=>{
+      const map: NotesMap = {};
+      rows.forEach(n=>{ map[`${n.surah_num}:${n.ayah_num}`]=n.note_text; });
+      setNotes(map);
+    }).catch(()=>{});
     fetch(`${API}/recitations`).then(r=>r.json()).then(setReciters).catch(()=>{});
     fetch(`${API}/surahs`).then(r=>r.json()).then(setSurahs).catch(()=>{});
     fetch(`${API}/ahzab`).then(r=>r.json()).then(setAhzab).catch(()=>{});
@@ -1990,6 +2100,18 @@ export default function Home() {
     setSelR(id);
     playPreview(id);
   };
+
+  const handleNoteChange = useCallback(async(surah:number, ayah:number, text:string|null)=>{
+    const key = `${surah}:${ayah}`;
+    if(text===null){
+      setNotes(prev=>{ const n={...prev}; delete n[key]; return n; });
+      fetch(`${API}/notes/${surah}/${ayah}?device_id=noureddine`,{method:'DELETE'}).catch(()=>{});
+    } else {
+      setNotes(prev=>({...prev,[key]:text}));
+      fetch(`${API}/notes`,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({device_id:'noureddine',surah_num:surah,ayah_num:ayah,note_text:text})}).catch(()=>{});
+    }
+  },[]);
 
   useEffect(()=>{ if(selS){setAMin(1);setAMax(Math.min(7,selS.verses_count));} },[selS]);
 
@@ -2119,53 +2241,60 @@ export default function Home() {
       <Stars show={dark}/>
       <IslamicPattern opacity={dark?0.032:0.05}/>
 
-      {/* HEADER */}
-      <header className="hdr">
-        <div className="hdr-inner">
-          <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <button className="theme-btn" onClick={()=>setDark(!dark)} title="تبديل المظهر">
-              {dark?<IcSun s={18} c="var(--gold)"/>:<IcCrescent s={18} c="var(--gold)"/>}
-            </button>
-            {sessionMode&&(
-              <button className={`mode-chip mode-chip-${sessionMode}`} onClick={()=>handleModeSelect(sessionMode==='wird'?'hifd':sessionMode==='hifd'?'free':'wird')} title="تغيير الوضع">
-                {sessionMode==='wird'?<IcWird s={13} c="currentColor"/>:sessionMode==='hifd'?<IcTarget s={13} c="currentColor"/>:<IcPlay s={13} c="currentColor"/>}
-                {sessionMode==='wird'?'ورد':sessionMode==='hifd'?'حفظ':'حر'}
+      {/* STICKY TOP NAV — header + step bar stick together */}
+      <div className="top-nav">
+        <header className="hdr">
+          <div className="hdr-inner">
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <button className="theme-btn" onClick={()=>setDark(!dark)} title="تبديل المظهر">
+                {dark?<IcSun s={18} c="var(--gold)"/>:<IcCrescent s={18} c="var(--gold)"/>}
               </button>
-            )}
-          </div>
-          <div className="hdr-center">
-            <div className="hdr-orn">
-              <svg viewBox="0 0 260 30" width="240" height="28">
-                <g stroke="currentColor" fill="none" strokeWidth="0.7" opacity="0.6">
-                  <line x1="0" y1="15" x2="85" y2="15"/>
-                  <line x1="175" y1="15" x2="260" y2="15"/>
-                  <path d="M85,15 C100,2 120,2 130,2 C140,2 160,2 175,15"/>
-                  <circle cx="130" cy="15" r="4" fill="currentColor" opacity="0.4"/>
-                  <circle cx="50" cy="15" r="2" fill="currentColor" opacity="0.35"/>
-                  <circle cx="210" cy="15" r="2" fill="currentColor" opacity="0.35"/>
-                  <path d="M130,2 L133,10 L142,10 L135,15 L138,24 L130,19 L122,24 L125,15 L118,10 L127,10 Z" strokeWidth="0.4" opacity="0.3"/>
-                </g>
-              </svg>
+              {sessionMode&&(
+                <button className={`mode-chip mode-chip-${sessionMode}`} onClick={()=>handleModeSelect(sessionMode==='wird'?'hifd':sessionMode==='hifd'?'free':'wird')} title="تغيير الوضع">
+                  {sessionMode==='wird'?<IcWird s={13} c="currentColor"/>:sessionMode==='hifd'?<IcTarget s={13} c="currentColor"/>:<IcPlay s={13} c="currentColor"/>}
+                  {sessionMode==='wird'?'ورد':sessionMode==='hifd'?'حفظ':'حر'}
+                </button>
+              )}
             </div>
-            <h1 className="hdr-title">مُصحف الصوت</h1>
-            <p className="hdr-sub">استمع إلى القرآن الكريم بأصوات كبار القراء</p>
-            <div className="hdr-orn" style={{opacity:.4,transform:"scaleY(-1)"}}>
-              <svg viewBox="0 0 260 20" width="240" height="16">
-                <g stroke="currentColor" fill="none" strokeWidth="0.6" opacity="0.7">
-                  <line x1="0" y1="10" x2="90" y2="10"/>
-                  <line x1="170" y1="10" x2="260" y2="10"/>
-                  <path d="M90,10 C105,2 120,2 130,2 C140,2 155,2 170,10"/>
-                  <circle cx="130" cy="10" r="2.5" fill="currentColor" opacity="0.4"/>
-                </g>
-              </svg>
+            <div className="hdr-center">
+              <div className="hdr-orn">
+                <svg viewBox="0 0 260 30" width="240" height="28">
+                  <g stroke="currentColor" fill="none" strokeWidth="0.7" opacity="0.6">
+                    <line x1="0" y1="15" x2="85" y2="15"/>
+                    <line x1="175" y1="15" x2="260" y2="15"/>
+                    <path d="M85,15 C100,2 120,2 130,2 C140,2 160,2 175,15"/>
+                    <circle cx="130" cy="15" r="4" fill="currentColor" opacity="0.4"/>
+                    <circle cx="50" cy="15" r="2" fill="currentColor" opacity="0.35"/>
+                    <circle cx="210" cy="15" r="2" fill="currentColor" opacity="0.35"/>
+                    <path d="M130,2 L133,10 L142,10 L135,15 L138,24 L130,19 L122,24 L125,15 L118,10 L127,10 Z" strokeWidth="0.4" opacity="0.3"/>
+                  </g>
+                </svg>
+              </div>
+              <h1 className="hdr-title">مُصحف الصوت</h1>
+              <p className="hdr-sub">استمع إلى القرآن الكريم بأصوات كبار القراء</p>
+              <div className="hdr-orn" style={{opacity:.4,transform:"scaleY(-1)"}}>
+                <svg viewBox="0 0 260 20" width="240" height="16">
+                  <g stroke="currentColor" fill="none" strokeWidth="0.6" opacity="0.7">
+                    <line x1="0" y1="10" x2="90" y2="10"/>
+                    <line x1="170" y1="10" x2="260" y2="10"/>
+                    <path d="M90,10 C105,2 120,2 130,2 C140,2 155,2 170,10"/>
+                    <circle cx="130" cy="10" r="2.5" fill="currentColor" opacity="0.4"/>
+                  </g>
+                </svg>
+              </div>
             </div>
+            <button className="hist-btn" onClick={()=>setShowHistory(true)} title="سجل القراءة">
+              <IcHistory s={18} c="var(--gold)"/>
+              {completedHizbs.size>0&&<span className="hist-btn-badge">{toAr(completedHizbs.size)}</span>}
+            </button>
           </div>
-          <button className="hist-btn" onClick={()=>setShowHistory(true)} title="سجل القراءة">
-            <IcHistory s={18} c="var(--gold)"/>
-            {completedHizbs.size>0&&<span className="hist-btn-badge">{toAr(completedHizbs.size)}</span>}
-          </button>
+        </header>
+
+        {/* STEP BAR */}
+        <div className="sb-wrap">
+          <StepBar current={step} maxReached={maxStep}/>
         </div>
-      </header>
+      </div>
 
       {/* MODE SELECTION OVERLAY */}
       {sessionMode===null&&<ModeSelectionScreen onSelect={handleModeSelect}/>}
@@ -2173,11 +2302,6 @@ export default function Home() {
       {/* HISTORY PANEL */}
       <HistoryPanel show={showHistory} onClose={()=>setShowHistory(false)}
         history={readingHistory} ahzab={ahzab} surahs={surahs}/>
-
-      {/* STEP BAR */}
-      <div className="sb-wrap">
-        <StepBar current={step} maxReached={maxStep}/>
-      </div>
 
       {/* WIZARD */}
       <main className="wizard">
@@ -2305,6 +2429,11 @@ export default function Home() {
               /* ── Fullscreen target: only text + centered player ── */
               <div ref={quranFullRef} className="qs-text-wrap">
                 <div className="listen-layout-full">
+                  {/* iOS-style note toast — fixed, above everything */}
+                  {(()=>{
+                    const toastRef = (activeAyah && notes[ayahKey(activeAyah)]) ? activeAyah : (clickedNoteRef && notes[ayahKey(clickedNoteRef)]) ? clickedNoteRef : null;
+                    return <NoteToast note={toastRef ? (notes[ayahKey(toastRef)]??null) : null} ayahRef={toastRef}/>;
+                  })()}
                   <div className="qtext-col qtext-full">
                     <div className="qtext-hdr">
                       <span>النص القرآني</span>
@@ -2322,6 +2451,9 @@ export default function Home() {
                           ayahs={ayahTexts} surahNum={selS?.id??selHizb?.start_surah??1} surahName={selS?.name_arabic??surahs.find(s=>s.id===selHizb?.start_surah)?.name_arabic??""}
                           activeAyah={activeAyah}
                           scrollRef={mushafScrollRef}
+                          notes={notes}
+                          onNoteChange={handleNoteChange}
+                          onNoteAyahSelect={setClickedNoteRef}
                           onAyahClick={(ref)=>{ setActiveAyah(ref); seekRef.current?.(ref); }}/>
                     }
                     {!loadingText&&ayahTexts.length>0&&(
@@ -2595,12 +2727,19 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
   box-sizing:border-box;
 }
 
+/* STICKY NAV SHELL — header + step bar stick together as one unit */
+.top-nav{
+  position:sticky;top:0;z-index:200;
+  width:100%;box-sizing:border-box;
+  /* The children already provide their own backgrounds + blur, so no bg here */
+}
+
 /* HEADER */
 .hdr{
   width:100%;box-sizing:border-box;
   background:var(--hdr-bg);
   backdrop-filter:blur(16px) saturate(1.4);-webkit-backdrop-filter:blur(16px) saturate(1.4);
-  border-bottom:1px solid var(--border);z-index:10;position:relative;
+  border-bottom:1px solid var(--border);
   transition:padding var(--trans),opacity var(--trans);
 }
 .hdr-inner{
@@ -2626,7 +2765,6 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 /* STEP BAR — segmented pill */
 /* Stepper strip — full width, centers track inside */
 .sb-wrap{
-  position:sticky;top:0;z-index:20;
   width:100%;box-sizing:border-box;overflow-x:hidden;
   background:var(--hdr-bg);
   backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
@@ -2804,7 +2942,7 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 
 /* LISTEN LAYOUT */
 .listen-layout-full{display:block;padding-bottom:var(--player-clearance)}
-.listen-layout-full .qtext-col{border-inline-start:none;max-width:var(--reader-max);margin-inline:auto}
+.listen-layout-full .qtext-col{border-inline-start:none;max-width:none;margin-inline:0}
 /* keep old class for hifd fallback */
 .listen-layout{display:grid;grid-template-columns:1fr 1fr;min-height:520px}
 
@@ -3015,6 +3153,45 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .copy-ayah-btn{background:linear-gradient(135deg,rgba(42,157,143,.18),rgba(42,157,143,.08));border:1px solid rgba(42,157,143,.32);border-radius:8px;padding:7px 14px;color:var(--teal3);font-family:var(--ff);font-size:.78rem;font-weight:700;cursor:pointer;transition:all .2s}
 .copy-ayah-btn:hover{background:rgba(42,157,143,.16);transform:translateY(-1px)}
 .copy-ayah-btn.copied{background:rgba(201,168,76,.14);border-color:rgba(201,168,76,.34);color:var(--gold2)}
+
+/* NOTE DOT indicator on ayah spans */
+.note-dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--gold);opacity:.75;vertical-align:middle;margin-inline-start:3px;flex-shrink:0;position:relative;top:-1px}
+.qayah.has-note .mushaf-anum{color:var(--gold2)}
+
+/* NOTE TRIGGER BUTTON */
+.note-trigger-btn{background:linear-gradient(135deg,rgba(201,168,76,.14),rgba(201,168,76,.06));border:1px solid rgba(201,168,76,.28);border-radius:8px;padding:7px 14px;color:var(--gold2);font-family:var(--ff);font-size:.78rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .2s}
+.note-trigger-btn:hover{background:rgba(201,168,76,.2);border-color:rgba(201,168,76,.45);transform:translateY(-1px)}
+
+/* NOTE EDITOR (inline in drawer) */
+.note-editor{width:100%;display:flex;flex-direction:column;gap:7px;padding:2px 0}
+.note-editor-header{display:flex;align-items:center;gap:6px;font-size:.76rem;color:var(--gold2);font-weight:600;letter-spacing:.02em}
+.note-textarea{width:100%;background:rgba(3,6,10,.6);border:1px solid rgba(201,168,76,.28);border-radius:10px;padding:10px 13px;color:var(--text);font-family:var(--ff);font-size:.9rem;line-height:1.85;resize:vertical;min-height:72px;direction:rtl;text-align:right;transition:border-color .2s,background .2s;outline:none}
+.note-textarea:focus{border-color:rgba(201,168,76,.52);background:rgba(3,6,10,.8)}
+.note-textarea::placeholder{color:var(--textDD);font-size:.82rem}
+.note-editor-btns{display:flex;gap:7px;flex-wrap:wrap}
+.note-save-btn{background:linear-gradient(135deg,rgba(201,168,76,.3),rgba(201,168,76,.14));border:1px solid rgba(201,168,76,.45);border-radius:7px;padding:6px 16px;color:var(--gold2);font-family:var(--ff);font-size:.78rem;font-weight:700;cursor:pointer;transition:all .2s}
+.note-save-btn:hover:not(:disabled){background:rgba(201,168,76,.36);transform:translateY(-1px)}
+.note-save-btn:disabled{opacity:.4;cursor:not-allowed}
+.note-cancel-btn{background:transparent;border:1px solid var(--border);border-radius:7px;padding:6px 14px;color:var(--textD);font-family:var(--ff);font-size:.78rem;cursor:pointer;transition:all .2s}
+.note-cancel-btn:hover{border-color:var(--border2);color:var(--text)}
+.note-delete-btn{background:rgba(180,60,60,.1);border:1px solid rgba(180,60,60,.25);border-radius:7px;padding:6px 14px;color:#c87878;font-family:var(--ff);font-size:.78rem;cursor:pointer;transition:all .2s;margin-inline-start:auto}
+.note-delete-btn:hover{background:rgba(180,60,60,.2);border-color:rgba(180,60,60,.4)}
+
+/* NOTE TOAST — iOS notification style */
+.note-toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:9500;display:flex;align-items:flex-start;gap:10px;min-width:260px;max-width:min(460px,88vw);padding:12px 18px 14px;background:rgba(5,9,16,.88);backdrop-filter:blur(36px);-webkit-backdrop-filter:blur(36px);border:1px solid rgba(201,168,76,.32);border-radius:22px;box-shadow:0 12px 48px rgba(0,0,0,.7),0 3px 14px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.07);pointer-events:none;direction:rtl;text-align:right}
+.note-toast::before{content:'';position:absolute;inset:0;border-radius:22px;background:radial-gradient(ellipse at 20% 0%,rgba(201,168,76,.1) 0%,transparent 60%);pointer-events:none}
+.nt-in{animation:ntIn .44s cubic-bezier(.34,1.46,.64,1) both}
+.nt-out{animation:ntOut .32s cubic-bezier(.4,0,1,1) both}
+@keyframes ntIn{from{opacity:0;transform:translateX(-50%) translateY(-130%) scale(.82)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
+@keyframes ntOut{from{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}to{opacity:0;transform:translateX(-50%) translateY(-115%) scale(.9)}}
+.nt-star{color:var(--gold);font-size:.9rem;margin-top:2px;flex-shrink:0;animation:ntStarPulse 2.5s ease-in-out infinite}
+@keyframes ntStarPulse{0%,100%{opacity:.7;transform:scale(1)}50%{opacity:1;transform:scale(1.35)}}
+.nt-body{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
+.nt-ref{font-size:.67rem;font-weight:700;color:var(--gold2);letter-spacing:.05em;opacity:.9}
+.nt-text{font-family:var(--ff);font-size:.9rem;line-height:1.9;color:var(--text);word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;animation:ntTextIn .28s ease both}
+@keyframes ntTextIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+.light .note-toast{background:rgba(245,240,232,.9);border-color:rgba(90,69,32,.28);box-shadow:0 8px 32px rgba(90,69,32,.18),0 2px 8px rgba(0,0,0,.1),inset 0 1px 0 rgba(255,255,255,.6)}
+.light .nt-text{color:#1a1208}
 
 /* TAFSIR TRIGGER / PANEL */
 .tf-trigger{background:var(--bg4);border:1px solid var(--border);border-radius:8px;padding:7px 14px;color:var(--textD);font-family:var(--ff);font-size:.78rem;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .2s}
@@ -3258,7 +3435,7 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
   .hdr-inner{padding-block:18px 14px;padding-inline:32px}
   .wizard{padding-block:28px var(--player-clearance);padding-inline:24px}
   .wcard-body{max-height:calc(100dvh - 310px)}
-  .listen-layout-full .qtext-col{max-width:var(--reader-max)}
+  .listen-layout-full .qtext-col{max-width:var(--reader-max);margin-inline:auto}
   .mushaf-text{font-size:1.72rem}
   .float-player{bottom:calc(24px + var(--sab))}
   .fp-row{padding-block:12px 16px;padding-inline:20px;height:72px}
