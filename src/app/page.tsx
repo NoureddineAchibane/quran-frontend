@@ -1639,9 +1639,14 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
             <span className="sp-elbl">إعادة تلقائية</span>
           </label>
           {autoReplay&&<>
-            <input type="number" min={1} max={99} value={replayCount} className="sp-rcount"
-              onChange={e=>setReplayCount(Math.max(1,parseInt(e.target.value)||1))}/>
-            <span className="sp-elbl">مرات</span>
+            <div className="sp-rbtns">
+              {[1,2,3,5,7,10].map(n=>(
+                <button key={n} className={`sp-rbtn${replayCount===n?' active':''}`}
+                  onClick={()=>{setReplayCount(n);replayCountRef.current=n;}}>
+                  {toAr(n)}×
+                </button>
+              ))}
+            </div>
             {(playing||replayDone>0)&&<span className="sp-rdone">{toAr(replayDone+1)}/{toAr(replayCount)}</span>}
           </>}
         </div>
@@ -2158,6 +2163,7 @@ export default function Home() {
         ayah_min:whole?undefined:aMin,ayah_max:whole?undefined:aMax}).catch(()=>{});
     }
   };
+  const handleResetRef = useRef<()=>void>(()=>{});
   const handleReset=()=>{
     gen.reset();setStep(1);setMaxStep(1);
     setSelR(null);setSelS(null);setSelHizb(null);
@@ -2165,6 +2171,7 @@ export default function Home() {
     setSelMode('surah');setJustFinished(false);
     setFpExpanded(false);setFpPlaying(false);setFpCur(0);setFpDur(0);
   };
+  useEffect(()=>{ handleResetRef.current=handleReset; });
 
   const handleModeSelect=(m:SessionMode)=>{
     setSessionMode(m);
@@ -2183,6 +2190,7 @@ export default function Home() {
       session_mode: sessionMode,
     };
     setJustFinished(true);
+    setTimeout(()=>handleResetRef.current(), 2800);
     try {
       const res = await fetch(`${API}/history`, {
         method:'POST',
@@ -3064,7 +3072,7 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .fp-details .sp-skip{background:var(--bg4);border-color:var(--border)}
 .fp-details .sp-ebtn{background:var(--bg4);border-color:var(--border)}
 .fp-details .sp-jbtn{background:var(--bg4);border-color:var(--border)}
-.fp-details .sp-rcount{background:var(--bg4);border-color:var(--border);color:var(--text)}
+.fp-details .sp-rbtn{background:var(--bg4);border-color:var(--border);color:var(--textD)}
 .fp-details .sp-dl{background:rgba(201,168,76,.07);border-color:var(--border2)}
 .fp-details .prog-panel{background:var(--bg2);border-color:var(--border)}
 .fp-details .sp-vrange{background:var(--bg5)}
@@ -3269,6 +3277,10 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .sp-rcount{width:42px;background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-size:.8rem;font-family:var(--ff);color:var(--text);text-align:center;outline:none;-moz-appearance:textfield}
 .sp-rcount::-webkit-inner-spin-button,.sp-rcount::-webkit-outer-spin-button{-webkit-appearance:none}
 .sp-rdone{font-size:.66rem;color:var(--gold);background:rgba(201,168,76,.12);padding:2px 9px;border-radius:12px;font-weight:700;direction:ltr}
+.sp-rbtns{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.sp-rbtn{padding:2px 8px;font-size:.72rem;font-family:var(--ff);border-radius:6px;border:1px solid var(--border);background:var(--bg4);color:var(--textD);cursor:pointer;transition:all .15s}
+.sp-rbtn:hover{border-color:var(--gold);color:var(--gold)}
+.sp-rbtn.active{background:rgba(201,168,76,.18);border-color:var(--gold);color:var(--gold);font-weight:700}
 
 /* PROGRESS */
 .prog-panel{background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px}
