@@ -2215,10 +2215,28 @@ export default function Home() {
     return Math.min(maxDone + 1, 60);
   },[completedHizbs]);
 
-  const filtered=useMemo(()=>
-    surahs.filter(s=>s.name_arabic.includes(search)||
+  // Map surahId → hifd % (0-100) from reading history
+  const hifdPctBySurah = useMemo(()=>{
+    const map = new Map<number,number>();
+    const entries = readingHistory.filter(h=>h.session_mode==='hifd'&&h.surah_num&&h.ayah_min&&h.ayah_max);
+    const bySurah = new Map<number,[number,number][]>();
+    entries.forEach(h=>{ if(!bySurah.has(h.surah_num!)) bySurah.set(h.surah_num!,[]); bySurah.get(h.surah_num!)!.push([h.ayah_min!,h.ayah_max!]); });
+    bySurah.forEach((ranges,surahId)=>{
+      const total = surahs.find(s=>s.id===surahId)?.verses_count ?? 1;
+      const hifded = Math.min(mergeIntervals(ranges), total);
+      map.set(surahId, Math.round((hifded/total)*100));
+    });
+    return map;
+  },[readingHistory, surahs]);
+
+  const filtered=useMemo(()=>{
+    const base = surahs.filter(s=>s.name_arabic.includes(search)||
       s.name_simple.toLowerCase().includes(search.toLowerCase())||
-      String(s.id).includes(search)),[surahs,search]);
+      String(s.id).includes(search));
+    if(sessionMode==='hifd' && !search)
+      return [...base].sort((a,b)=>a.verses_count-b.verses_count);
+    return base;
+  },[surahs,search,sessionMode]);
 
   const dMin=whole?1:aMin, dMax=whole?(selS?.verses_count??1):aMax;
   const fmtPlayerTime=(s:number)=>`${Math.floor(s/60)}:${Math.floor(s%60).toString().padStart(2,"0")}`;
@@ -2338,15 +2356,24 @@ export default function Home() {
                   {search&&<button className="srch-x" onClick={()=>setSearch("")}><IcClose s={12} c="currentColor"/></button>}
                 </div>
                 <div className="sg">
-                  {filtered.map((s,i)=>(
+                  {filtered.map((s,i)=>{
+                    const hpct = hifdPctBySurah.get(s.id);
+                    return (
                     <div key={s.id} className={`si${selS?.id===s.id?" sel":""}`} style={{"--idx":i} as any} onClick={()=>setSelS(s)}>
                       <span className="si-n">{toAr(s.id)}</span>
                       <div className="si-body"><span className="si-ar">{s.name_arabic}</span>
                         <span className="si-en">{s.translated_name} · {toAr(s.verses_count)} آية</span></div>
-                      <span className={`si-bdg${s.revelation_place==="makkah"?" mk":" md"}`}>
-                        {s.revelation_place==="makkah"?"مكية":"مدنية"}</span>
+                      <div className="si-right">
+                        {hpct!=null && (
+                          hpct===100
+                            ? <span className="si-hifd-done">✓ محفوظة</span>
+                            : <span className="si-hifd-pct">{toAr(hpct)}٪</span>
+                        )}
+                        <span className={`si-bdg${s.revelation_place==="makkah"?" mk":" md"}`}>
+                          {s.revelation_place==="makkah"?"مكية":"مدنية"}</span>
+                      </div>
                     </div>
-                  ))}
+                  );})}
                 </div>
               </>):(
                 <HizbPicker ahzab={ahzab} surahs={surahs} selected={selHizb} onSelect={setSelHizb}
@@ -2902,6 +2929,9 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .si-bdg{font-size:.58rem;padding:2px 7px;border-radius:20px;flex-shrink:0;font-weight:600}
 .si-bdg.mk{background:rgba(201,168,76,.1);color:var(--gold);border:1px solid rgba(201,168,76,.2)}
 .si-bdg.md{background:rgba(42,157,143,.1);color:var(--teal3);border:1px solid rgba(42,157,143,.2)}
+.si-right{display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0}
+.si-hifd-done{font-size:.58rem;padding:2px 7px;border-radius:20px;font-weight:700;background:rgba(42,157,143,.12);color:var(--teal3);border:1px solid rgba(42,157,143,.25)}
+.si-hifd-pct{font-size:.58rem;padding:2px 7px;border-radius:20px;font-weight:700;background:rgba(201,168,76,.1);color:var(--gold);border:1px solid rgba(201,168,76,.2)}
 
 /* AYAH RANGE PICKER */
 .arp{display:flex;flex-direction:column;gap:16px}
