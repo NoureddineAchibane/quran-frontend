@@ -1230,6 +1230,14 @@ function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick, s
     onAyahClick?.(ref);
     if(!closing && notes?.[ayahKey(ref)]) onNoteAyahSelect?.(ref);
     else onNoteAyahSelect?.(null);
+    if(!closing){
+      const a = ayahs.find(a=>a.surahNumber===ref.surah&&a.numberInSurah===ref.ayah);
+      if(a){
+        const name = a.surahName ?? surahName;
+        const text = `${a.text}\n\nسورة ${name}، الآية ${toAr(ref.ayah)}`;
+        navigator.clipboard?.writeText(text).then(()=>setCopied(true)).catch(()=>{});
+      }
+    }
   };
   const selectedAyahText = selectedAyah
     ? ayahs.find(a=>a.surahNumber===selectedAyah.surah&&a.numberInSurah===selectedAyah.ayah)
