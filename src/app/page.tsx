@@ -1648,12 +1648,21 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
           </label>
           {autoReplay&&<>
             <div className="sp-rbtns">
-              {[1,2,3,5,7,10].map(n=>(
+              {[2,3,5,7,10].map(n=>(
                 <button key={n} className={`sp-rbtn${replayCount===n?' active':''}`}
                   onClick={()=>{setReplayCount(n);replayCountRef.current=n;}}>
                   {toAr(n)}×
                 </button>
               ))}
+              <input
+                type="number" min={1} max={99}
+                className="sp-rcount"
+                value={replayCount}
+                onChange={e=>{
+                  const v=Math.max(1,Math.min(99,parseInt(e.target.value)||1));
+                  setReplayCount(v);replayCountRef.current=v;
+                }}
+              />
               <span className="sp-rdone">
                 {playing
                   ? <>{toAr(replayDone+1)}&nbsp;/&nbsp;{toAr(replayCount)}</>
@@ -3322,7 +3331,8 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .sp-toggle input:checked~.sp-tog-track{background:rgba(42,157,143,.35);border-color:var(--teal)}
 .sp-tog-thumb{position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:var(--textD);transition:all .2s}
 .sp-toggle input:checked~.sp-tog-track .sp-tog-thumb{left:16px;background:var(--teal3)}
-.sp-rcount{width:42px;background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-size:.8rem;font-family:var(--ff);color:var(--text);text-align:center;outline:none;-moz-appearance:textfield}
+.sp-rcount{width:40px;background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:2px 4px;font-size:.78rem;font-family:var(--ff);color:var(--text);text-align:center;outline:none;-moz-appearance:textfield;transition:border-color .15s}
+.sp-rcount:focus{border-color:var(--gold)}
 .sp-rcount::-webkit-inner-spin-button,.sp-rcount::-webkit-outer-spin-button{-webkit-appearance:none}
 .sp-rdone{font-size:.68rem;color:var(--gold);background:rgba(201,168,76,.14);padding:3px 10px;border-radius:12px;font-weight:700;direction:rtl;margin-right:auto;margin-left:6px;border:1px solid rgba(201,168,76,.25);white-space:nowrap}
 .sp-rbtns{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:6px}
