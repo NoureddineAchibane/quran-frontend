@@ -2242,9 +2242,14 @@ export default function Home() {
       s.name_simple.toLowerCase().includes(search.toLowerCase())||
       String(s.id).includes(search));
     if(sessionMode==='hifd' && !search)
-      return [...base].sort((a,b)=>a.verses_count-b.verses_count);
+      return [...base].sort((a,b)=>{
+        const aDone = (hifdPctBySurah.get(a.id)??0)===100 ? 1 : 0;
+        const bDone = (hifdPctBySurah.get(b.id)??0)===100 ? 1 : 0;
+        if(aDone!==bDone) return aDone-bDone;
+        return a.verses_count-b.verses_count;
+      });
     return base;
-  },[surahs,search,sessionMode]);
+  },[surahs,search,sessionMode,hifdPctBySurah]);
 
   const dMin=whole?1:aMin, dMax=whole?(selS?.verses_count??1):aMax;
   const fmtPlayerTime=(s:number)=>`${Math.floor(s/60)}:${Math.floor(s%60).toString().padStart(2,"0")}`;
