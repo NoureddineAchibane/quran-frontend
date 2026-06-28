@@ -1457,7 +1457,7 @@ function NoteToast({ note, ayahRef }:{ note:string|null; ayahRef:AyahRef|null })
 /* ════════ SYNCED PLAYER ════════ */
 function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah,
   onPlayChange, onProgress, onExposeControls, baseSurah, speed, autoReplay,
-  onSpeedChange, onAutoReplayChange, onTimeChange }:{
+  replayCount: replayCountProp, onSpeedChange, onAutoReplayChange, onReplayCountChange, onTimeChange }:{
   url:string; filename:string; sizeKb:number|null;
   timings:AyahTiming[];
   onAyahChange:(ref:AyahRef|null)=>void;
@@ -1468,8 +1468,10 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
   baseSurah:number;
   speed:number;
   autoReplay:boolean;
+  replayCount:number;
   onSpeedChange:(speed:number)=>void;
   onAutoReplayChange:(enabled:boolean)=>void;
+  onReplayCountChange:(n:number)=>void;
   onTimeChange?:(cur:number,dur:number)=>void;
 }) {
   const aRef = useRef<HTMLAudioElement|null>(null);
@@ -1485,15 +1487,16 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
   // estimates were used instead, this corrects the aggregate error at playback time.
   // With exact per-ayah timings from computeExactTimings it stays 1 (no-op).
   const scaleRef=useRef(1);
-  const [replayCount,setReplayCount]=useState(3);
+  const replayCount = replayCountProp;
+  const setReplayCount = (n:number)=>{ replayCountRef.current=n; onReplayCountChange(n); };
   const [replayDone,setReplayDone]=useState(0);
   const playingRef=useRef(false);
   const speedRef=useRef(1);
   const autoReplayRef=useRef(false);
-  const replayCountRef=useRef(3);
+  const replayCountRef=useRef(replayCountProp);
   const replayDoneRef=useRef(0);
   useEffect(()=>{ autoReplayRef.current=autoReplay; },[autoReplay]);
-  useEffect(()=>{ replayCountRef.current=replayCount; },[replayCount]);
+  useEffect(()=>{ replayCountRef.current=replayCountProp; },[replayCountProp]);
   useEffect(()=>{ curIdxRef.current=curIdx; },[curIdx]);
   useEffect(()=>{ speedRef.current=speed; if(aRef.current) aRef.current.playbackRate=speed; },[speed]);
 
@@ -1651,7 +1654,7 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
           <div className="sp-rbtns">
             {[2,3,5,7,10].map(n=>(
               <button key={n} className={`sp-rbtn${replayCount===n?' active':''}`}
-                onClick={()=>{setReplayCount(n);replayCountRef.current=n;}}>
+                onClick={()=>setReplayCount(n)}>
                 {toAr(n)}×
               </button>
             ))}
@@ -1661,7 +1664,7 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
               value={replayCount}
               onChange={e=>{
                 const v=Math.max(1,Math.min(99,parseInt(e.target.value)||1));
-                setReplayCount(v);replayCountRef.current=v;
+                setReplayCount(v);
               }}
             />
             <span className="sp-rdone">
@@ -2001,6 +2004,7 @@ export default function Home() {
   const [fpPlaying,setFpPlaying]=useState(false);
   const [fpSpeed,setFpSpeed]=useState(1);
   const [fpAutoReplay,setFpAutoReplay]=useState(false);
+  const [fpReplayCount,setFpReplayCount]=useState(3);
   const [fpCur,setFpCur]=useState(0);
   const [fpDur,setFpDur]=useState(0);
   // Session & history state
@@ -2653,8 +2657,10 @@ export default function Home() {
                     baseSurah={selS?.id??selHizb?.start_surah??1}
                     speed={fpSpeed}
                     autoReplay={fpAutoReplay}
+                    replayCount={fpReplayCount}
                     onSpeedChange={setFpSpeed}
                     onAutoReplayChange={setFpAutoReplay}
+                    onReplayCountChange={setFpReplayCount}
                     onTimeChange={(c,d)=>{setFpCur(c);setFpDur(d);}}/>
                   <button className="fp-new-session" onClick={handleReset}><IcReset s={13} c="currentColor"/> جلسة جديدة</button>
                 </div>
@@ -2711,6 +2717,19 @@ export default function Home() {
                   <span className="fp-toggle-mark"/>
                   <span>تكرار</span>
                 </button>
+                {fpAutoReplay&&(
+                  <div className="fp-rcount-row">
+                    {[2,3,5,7,10].map(n=>(
+                      <button key={n} className={`fp-rcbtn${fpReplayCount===n?' active':''}`}
+                        onClick={()=>setFpReplayCount(n)}>
+                        {toAr(n)}×
+                      </button>
+                    ))}
+                    <input type="number" min={1} max={99} className="fp-rcinput"
+                      value={fpReplayCount}
+                      onChange={e=>{const v=Math.max(1,Math.min(99,parseInt(e.target.value)||1));setFpReplayCount(v);}}/>
+                  </div>
+                )}
                 <div className="fp-right">
                   {gen.status==='done'&&(
                     <button className="fp-chevron" onClick={()=>setFpExpanded(v=>!v)}
@@ -3084,6 +3103,13 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .fp-toggle-mini.active{background:rgba(42,157,143,.16);border-color:rgba(42,157,143,.42);color:var(--teal3)}
 .fp-toggle-mark{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.55;box-shadow:0 0 0 3px rgba(255,255,255,.04)}
 .fp-toggle-mini.active .fp-toggle-mark{opacity:1;box-shadow:0 0 12px rgba(42,157,143,.62)}
+.fp-rcount-row{display:flex;align-items:center;gap:3px;flex-shrink:0}
+.fp-rcbtn{border:1px solid var(--border);background:rgba(255,255,255,.055);color:var(--textD);border-radius:999px;padding:5px 8px;font-family:var(--ff);font-size:.66rem;line-height:1;cursor:pointer;white-space:nowrap;transition:all .18s}
+.fp-rcbtn:hover{color:var(--gold);border-color:rgba(201,168,76,.4)}
+.fp-rcbtn.active{background:rgba(201,168,76,.18);border-color:var(--gold);color:var(--gold);font-weight:700}
+.fp-rcinput{width:36px;border:1px solid var(--border);background:rgba(255,255,255,.055);color:var(--text);border-radius:8px;padding:4px 4px;font-family:var(--ff);font-size:.66rem;text-align:center;outline:none;-moz-appearance:textfield;transition:border-color .15s}
+.fp-rcinput:focus{border-color:var(--gold)}
+.fp-rcinput::-webkit-inner-spin-button,.fp-rcinput::-webkit-outer-spin-button{-webkit-appearance:none}
 .fp-loading-dot{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.06);border:1px solid var(--border)}
 .light .fp-speed-btn,.light .fp-toggle-mini{background:rgba(0,0,0,.045)}
 .light .fp-loading-dot{background:rgba(0,0,0,.045)}
