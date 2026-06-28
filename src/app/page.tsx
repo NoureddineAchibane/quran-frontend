@@ -1654,8 +1654,13 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
                   {toAr(n)}×
                 </button>
               ))}
+              <span className="sp-rdone">
+                {playing
+                  ? <>{toAr(replayDone+1)}&nbsp;/&nbsp;{toAr(replayCount)}</>
+                  : <>{toAr(replayCount)}× تكرار</>
+                }
+              </span>
             </div>
-            {(playing||replayDone>0)&&<span className="sp-rdone">{toAr(replayDone+1)}/{toAr(replayCount)}</span>}
           </>}
         </div>
       </div>
@@ -3319,8 +3324,8 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .sp-toggle input:checked~.sp-tog-track .sp-tog-thumb{left:16px;background:var(--teal3)}
 .sp-rcount{width:42px;background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-size:.8rem;font-family:var(--ff);color:var(--text);text-align:center;outline:none;-moz-appearance:textfield}
 .sp-rcount::-webkit-inner-spin-button,.sp-rcount::-webkit-outer-spin-button{-webkit-appearance:none}
-.sp-rdone{font-size:.66rem;color:var(--gold);background:rgba(201,168,76,.12);padding:2px 9px;border-radius:12px;font-weight:700;direction:ltr}
-.sp-rbtns{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.sp-rdone{font-size:.68rem;color:var(--gold);background:rgba(201,168,76,.14);padding:3px 10px;border-radius:12px;font-weight:700;direction:rtl;margin-right:auto;margin-left:6px;border:1px solid rgba(201,168,76,.25);white-space:nowrap}
+.sp-rbtns{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:6px}
 .sp-rbtn{padding:2px 8px;font-size:.72rem;font-family:var(--ff);border-radius:6px;border:1px solid var(--border);background:var(--bg4);color:var(--textD);cursor:pointer;transition:all .15s}
 .sp-rbtn:hover{border-color:var(--gold);color:var(--gold)}
 .sp-rbtn.active{background:rgba(201,168,76,.18);border-color:var(--gold);color:var(--gold);font-weight:700}
