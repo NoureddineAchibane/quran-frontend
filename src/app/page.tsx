@@ -1640,38 +1640,38 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
             <button key={s} className={`sp-ebtn${speed===s?" active":""}`} onClick={()=>onSpeedChange(s)}>{s}×</button>
           ))}
         </div>
-        <div className="sp-replay">
-          <label className="sp-toggle">
-            <input type="checkbox" checked={autoReplay} onChange={e=>{onAutoReplayChange(e.target.checked);setReplayDone(0);replayDoneRef.current=0;}}/>
-            <span className="sp-tog-track"><span className="sp-tog-thumb"/></span>
-            <span className="sp-elbl">إعادة تلقائية</span>
-          </label>
-          {autoReplay&&<>
-            <div className="sp-rbtns">
-              {[2,3,5,7,10].map(n=>(
-                <button key={n} className={`sp-rbtn${replayCount===n?' active':''}`}
-                  onClick={()=>{setReplayCount(n);replayCountRef.current=n;}}>
-                  {toAr(n)}×
-                </button>
-              ))}
-              <input
-                type="number" min={1} max={99}
-                className="sp-rcount"
-                value={replayCount}
-                onChange={e=>{
-                  const v=Math.max(1,Math.min(99,parseInt(e.target.value)||1));
-                  setReplayCount(v);replayCountRef.current=v;
-                }}
-              />
-              <span className="sp-rdone">
-                {playing
-                  ? <>{toAr(replayDone+1)}&nbsp;/&nbsp;{toAr(replayCount)}</>
-                  : <>{toAr(replayCount)}× تكرار</>
-                }
-              </span>
-            </div>
-          </>}
-        </div>
+      </div>
+      <div className="sp-replay">
+        <label className="sp-toggle">
+          <input type="checkbox" checked={autoReplay} onChange={e=>{onAutoReplayChange(e.target.checked);setReplayDone(0);replayDoneRef.current=0;}}/>
+          <span className="sp-tog-track"><span className="sp-tog-thumb"/></span>
+          <span className="sp-elbl">إعادة تلقائية</span>
+        </label>
+        {autoReplay&&<>
+          <div className="sp-rbtns">
+            {[2,3,5,7,10].map(n=>(
+              <button key={n} className={`sp-rbtn${replayCount===n?' active':''}`}
+                onClick={()=>{setReplayCount(n);replayCountRef.current=n;}}>
+                {toAr(n)}×
+              </button>
+            ))}
+            <input
+              type="number" min={1} max={99}
+              className="sp-rcount"
+              value={replayCount}
+              onChange={e=>{
+                const v=Math.max(1,Math.min(99,parseInt(e.target.value)||1));
+                setReplayCount(v);replayCountRef.current=v;
+              }}
+            />
+            <span className="sp-rdone">
+              {playing
+                ? <>{toAr(replayDone+1)}&nbsp;/&nbsp;{toAr(replayCount)}</>
+                : <>{toAr(replayCount)}× تكرار</>
+              }
+            </span>
+          </div>
+        </>}
       </div>
       {timings.length>1&&(
         <div className="sp-jumps">
@@ -3125,6 +3125,7 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .fp-details .sp-meta{font-size:.6rem;color:var(--textDD)}
 .fp-details .sp-wf{background:var(--bg2);border-color:var(--border)}
 .fp-details .sp-extras{display:none}
+.fp-details .sp-replay{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
 .fp-details .sp-jumps{background:var(--bg2);border-color:var(--border)}
 .fp-details .sp-skip{background:var(--bg4);border-color:var(--border)}
 .fp-details .sp-ebtn{background:var(--bg4);border-color:var(--border)}
