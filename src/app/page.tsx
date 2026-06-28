@@ -2005,6 +2005,8 @@ export default function Home() {
   const [fpSpeed,setFpSpeed]=useState(1);
   const [fpAutoReplay,setFpAutoReplay]=useState(false);
   const [fpReplayCount,setFpReplayCount]=useState(3);
+  const [fpSpeedOpen,setFpSpeedOpen]=useState(false);
+  const [fpTikrarOpen,setFpTikrarOpen]=useState(false);
   const [fpCur,setFpCur]=useState(0);
   const [fpDur,setFpDur]=useState(0);
   // Session & history state
@@ -2708,28 +2710,45 @@ export default function Home() {
                 <div className="fp-time" dir="ltr">
                   <span>{fmtPlayerTime(fpCur)}</span><span>/</span><span>{fmtPlayerTime(fpDur)}</span>
                 </div>
-                <div className="fp-speed-mini" aria-label="سرعة التشغيل">
-                  {[0.5,0.75,1,1.25,1.5,2].map(s=>(
-                    <button key={s} className={`fp-speed-btn${fpSpeed===s?' active':''}`} onClick={()=>setFpSpeed(s)}>{s}x</button>
-                  ))}
-                </div>
-                <button className={`fp-toggle-mini${fpAutoReplay?' active':''}`} onClick={()=>setFpAutoReplay(v=>!v)} title="إعادة تلقائية">
+                {/* Speed: collapsed = current value badge, expanded = all options */}
+                {fpSpeedOpen ? (
+                  <div className="fp-speed-mini">
+                    {[0.5,0.75,1,1.25,1.5,2].map(s=>(
+                      <button key={s} className={`fp-speed-btn${fpSpeed===s?' active':''}`}
+                        onClick={()=>{setFpSpeed(s);setFpSpeedOpen(false);}}>
+                        {s}x
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <button className="fp-speed-btn fp-speed-compact" onClick={()=>setFpSpeedOpen(true)}>
+                    {fpSpeed}x
+                  </button>
+                )}
+                {/* Tikrar: toggle on/off, collapsed = current count badge, expanded = picker */}
+                <button className={`fp-toggle-mini${fpAutoReplay?' active':''}`}
+                  onClick={()=>{setFpAutoReplay(v=>!v);setFpTikrarOpen(false);}}>
                   <span className="fp-toggle-mark"/>
                   <span>تكرار</span>
                 </button>
-                {fpAutoReplay&&(
+                {fpAutoReplay&&(fpTikrarOpen ? (
                   <div className="fp-rcount-row">
                     {[2,3,5,7,10].map(n=>(
                       <button key={n} className={`fp-rcbtn${fpReplayCount===n?' active':''}`}
-                        onClick={()=>setFpReplayCount(n)}>
+                        onClick={()=>{setFpReplayCount(n);setFpTikrarOpen(false);}}>
                         {toAr(n)}×
                       </button>
                     ))}
-                    <input type="number" min={1} max={99} className="fp-rcinput"
+                    <input type="number" min={1} max={99} className="fp-rcinput" autoFocus
                       value={fpReplayCount}
-                      onChange={e=>{const v=Math.max(1,Math.min(99,parseInt(e.target.value)||1));setFpReplayCount(v);}}/>
+                      onChange={e=>{const v=Math.max(1,Math.min(99,parseInt(e.target.value)||1));setFpReplayCount(v);}}
+                      onKeyDown={e=>{if(e.key==='Enter')setFpTikrarOpen(false);}}/>
                   </div>
-                )}
+                ) : (
+                  <button className="fp-rcbtn active" onClick={()=>setFpTikrarOpen(true)}>
+                    {toAr(fpReplayCount)}×
+                  </button>
+                ))}
                 <div className="fp-right">
                   {gen.status==='done'&&(
                     <button className="fp-chevron" onClick={()=>setFpExpanded(v=>!v)}
@@ -3093,7 +3112,7 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .fp-ayah{font-size:.69rem;color:var(--gold2);margin-top:2px;font-weight:500;letter-spacing:.01em}
 .fp-status-lbl{font-size:.67rem;color:var(--textDD);margin-top:2px;letter-spacing:.01em}
 .fp-time{display:flex;align-items:center;gap:4px;color:var(--textD);font-size:.68rem;font-variant-numeric:tabular-nums;white-space:nowrap;flex-shrink:0}
-.fp-speed-mini{display:flex;align-items:center;gap:4px;max-width:238px;overflow-x:auto;scrollbar-width:none;flex-shrink:0;padding:2px}
+.fp-speed-mini{display:flex;align-items:center;gap:4px;max-width:238px;overflow-x:auto;scrollbar-width:none;flex-shrink:0;padding:2px;animation:fpRowIn .15s ease}
 .fp-speed-mini::-webkit-scrollbar{display:none}
 .fp-speed-btn{border:1px solid var(--border);background:rgba(255,255,255,.055);color:var(--textD);border-radius:999px;padding:5px 8px;font-family:var(--ff);font-size:.66rem;line-height:1;cursor:pointer;white-space:nowrap;transition:all .18s}
 .fp-speed-btn:hover{color:var(--text);border-color:rgba(201,168,76,.28)}
@@ -3103,7 +3122,9 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .fp-toggle-mini.active{background:rgba(42,157,143,.16);border-color:rgba(42,157,143,.42);color:var(--teal3)}
 .fp-toggle-mark{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.55;box-shadow:0 0 0 3px rgba(255,255,255,.04)}
 .fp-toggle-mini.active .fp-toggle-mark{opacity:1;box-shadow:0 0 12px rgba(42,157,143,.62)}
-.fp-rcount-row{display:flex;align-items:center;gap:3px;flex-shrink:0}
+.fp-speed-compact{font-weight:700;color:var(--gold)!important;border-color:rgba(201,168,76,.35)!important;background:rgba(201,168,76,.1)!important}
+.fp-rcount-row{display:flex;align-items:center;gap:3px;flex-shrink:0;animation:fpRowIn .15s ease}
+@keyframes fpRowIn{from{opacity:0;transform:scaleX(.85)}to{opacity:1;transform:scaleX(1)}}
 .fp-rcbtn{border:1px solid var(--border);background:rgba(255,255,255,.055);color:var(--textD);border-radius:999px;padding:5px 8px;font-family:var(--ff);font-size:.66rem;line-height:1;cursor:pointer;white-space:nowrap;transition:all .18s}
 .fp-rcbtn:hover{color:var(--gold);border-color:rgba(201,168,76,.4)}
 .fp-rcbtn.active{background:rgba(201,168,76,.18);border-color:var(--gold);color:var(--gold);font-weight:700}
