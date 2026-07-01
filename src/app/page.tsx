@@ -348,6 +348,41 @@ interface HistoryEntry {
 }
 type SessionMode = 'wird'|'hifd'|'free';
 
+/* ════════ LOCAL PREFS — versioned, fail-safe localStorage schema ════════ */
+const PREFS_KEY = 'quran.prefs.v1';
+interface StoredPrefs {
+  v: 1;
+  theme?: 'dark'|'light';
+  speed?: number;
+  autoReplay?: boolean;
+  replayCount?: number;
+  replayScope?: 'range'|'ayah';
+  lastReciter?: number|null;
+  // Snapshot of the last generated session — lets the UI offer continuity cues
+  lastSession?: {
+    mode: SessionMode;
+    selMode: 'surah'|'hizb';
+    surah?: number; hizb?: number;
+    aMin?: number; aMax?: number; whole?: boolean;
+    ts: number;
+  };
+}
+function loadPrefs(): Partial<StoredPrefs> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (!raw) return {};
+    const p = JSON.parse(raw);
+    return p && p.v === 1 ? p : {};
+  } catch { return {}; }
+}
+function savePrefs(patch: Partial<StoredPrefs>) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ ...loadPrefs(), ...patch, v: 1 }));
+  } catch { /* quota / privacy mode — persistence is best-effort */ }
+}
+
 const JUZ_NAMES: Record<number,string> = {
   1:"الأول",2:"الثاني",3:"الثالث",4:"الرابع",5:"الخامس",
   6:"السادس",7:"السابع",8:"الثامن",9:"التاسع",10:"العاشر",
@@ -388,6 +423,13 @@ function HizbPicker({ ahzab, surahs, selected, onSelect, completedHizbs, suggest
         </div>
       )}
 
+      {/* State legend */}
+      <div className="hpicker-legend" aria-hidden="true">
+        <span className="hleg hleg-done"><span className="hleg-dot"/>مكتمل</span>
+        {suggestHizb!=null && <span className="hleg hleg-sugg"><span className="hleg-dot"/>التالي المقترح</span>}
+        <span className="hleg hleg-sel"><span className="hleg-dot"/>محدد</span>
+      </div>
+
       {/* Juz selector pill tabs */}
       <div className="hpicker-juz-wrap">
         <div className="hpicker-juz-track">
@@ -418,7 +460,11 @@ function HizbPicker({ ahzab, surahs, selected, onSelect, completedHizbs, suggest
           const spansSurahs = h.start_surah !== h.end_surah;
           return (
             <div key={h.hizb_num} className={`hcard${isSel?" hcard-sel":""}${isDone?" hcard-done":""}${isSugg&&!isDone?" hcard-sugg":""}`}
-              onClick={()=>onSelect(h)}>
+              role="button" tabIndex={0}
+              aria-label={`حزب ${toAr(h.hizb_num)}${isDone?' — مكتمل':''}${isSugg&&!isDone?' — المقترح التالي':''}${isSel?' — محدد':''}`}
+              aria-pressed={isSel}
+              onClick={()=>onSelect(h)}
+              onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelect(h);}}}>
               <div className="hcard-badge">
                 <IcHizb s={14} c={isSel?"var(--gold)":isDone?"var(--teal2)":"currentColor"}/>
                 <span>حزب {toAr(h.hizb_num)}</span>
@@ -639,6 +685,7 @@ function HistoryPanel({ show, onClose, history, ahzab, surahs }:{
             <div className="hist-empty">
               <IcQuran s={32} c="var(--border)"/>
               <p>لا يوجد سجل بعد<br/>أكمل أول جلسة لتبدأ التتبع</p>
+              <button className="btn-next" onClick={onClose}>ابدأ جلسة الآن <IcArrowL s={13} c="#fff"/></button>
             </div>
           )}
         </>)}
@@ -958,7 +1005,11 @@ function ReciterCard({ r, selected, playing, onClick }:{
 }) {
   const m = RECITERS_META[r.id];
   return (
-    <div className={`rc${selected?" sel":""}${playing?" previewing":""}`} onClick={onClick}>
+    <div className={`rc${selected?" sel":""}${playing?" previewing":""}`}
+      role="button" tabIndex={0} aria-pressed={selected}
+      aria-label={`القارئ ${m?.nameAr??r.reciter_name}${selected?' — محدد':''}`}
+      onClick={onClick}
+      onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onClick();}}}>
       <div className="rc-avatar-wrap" style={{borderColor: selected?(m?.color2??"var(--gold)"):"transparent"}}>
         <ReciterAvatar id={r.id} size={62}/>
         {selected && !playing && <div className="rc-check"><IcCheck s={11} c="#fff"/></div>}
@@ -1059,11 +1110,12 @@ function TafsirPanel({ surahNum, ayahNum, autoLoad=false, onToggle }:{
   const key = `${surahNum}:${ayahNum}`;
   const [text,setText] = useState<string|null>(tafsirCache[key]??null);
   const [loading,setLoading] = useState(false);
+  const [error,setError] = useState(false);
   const [open,setOpen] = useState(false);
 
   const load = useCallback(async()=>{
-    if(tafsirCache[key]){ setText(tafsirCache[key]); setOpen(true); onToggle?.(true); return; }
-    setLoading(true); setOpen(true); onToggle?.(true);
+    if(tafsirCache[key]){ setText(tafsirCache[key]); setError(false); setOpen(true); onToggle?.(true); return; }
+    setLoading(true); setError(false); setOpen(true); onToggle?.(true);
     try {
       const res = await fetch(`${TAFSIR_CDN}/${surahNum}/${ayahNum}.json`);
       if(!res.ok) throw new Error("failed");
@@ -1071,7 +1123,7 @@ function TafsirPanel({ surahNum, ayahNum, autoLoad=false, onToggle }:{
       const t = d?.text ?? d?.tafsir ?? "—";
       tafsirCache[key] = t;
       setText(t);
-    } catch { setText("تعذّر تحميل التفسير، يرجى المحاولة لاحقاً."); }
+    } catch { setText(null); setError(true); }
     setLoading(false);
   },[key,surahNum,ayahNum]);
 
@@ -1088,10 +1140,15 @@ function TafsirPanel({ surahNum, ayahNum, autoLoad=false, onToggle }:{
     <div className="tf-panel">
       <div className="tf-header">
         <span style={{display:"flex",alignItems:"center",gap:6}}><IcScroll s={14} c="var(--gold2)"/> التفسير الميسر — آية {toAr(ayahNum)}</span>
-        <button className="tf-close" onClick={()=>{ setOpen(false); onToggle?.(false); }}><IcClose s={12} c="currentColor"/></button>
+        <button className="tf-close" onClick={()=>{ setOpen(false); onToggle?.(false); }} aria-label="إغلاق التفسير"><IcClose s={12} c="currentColor"/></button>
       </div>
       {loading
         ? <div className="tf-loading"><span className="mq-spin"/>جارٍ تحميل التفسير...</div>
+        : error
+        ? <div className="data-error" role="alert">
+            <span>تعذّر تحميل التفسير — تحقق من اتصالك بالإنترنت</span>
+            <button className="btn-retry" onClick={load}><IcReset s={13} c="currentColor"/> إعادة المحاولة</button>
+          </div>
         : <p className="tf-text">{text}</p>
       }
       <p className="tf-source">التفسير الميسر — نخبة من العلماء · jsDelivr CDN</p>
@@ -1340,7 +1397,11 @@ function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick, s
                         <span key={key}
                           ref={isActive?activeRef:null}
                           className={`qayah${isActive?" playing":""}${isSelected?" selected":""}${hasNote?" has-note":""}`}
+                          role="button" tabIndex={0}
+                          aria-label={`الآية ${toAr(a.numberInSurah)}${isActive?' — قيد التلاوة':''}`}
+                          aria-current={isActive?'true':undefined}
                           onClick={()=>handleClick(ref)}
+                          onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();handleClick(ref);}}}
                         >
                           {a.text}
                           <span className="mushaf-anum">{String.fromCodePoint(0x06DD)}{toAr(a.numberInSurah)}</span>
@@ -1423,7 +1484,7 @@ function NoteToast({ note, ayahRef }:{ note:string|null; ayahRef:AyahRef|null })
   const [phase, setPhase] = useState<'hidden'|'in'|'out'>('hidden');
   const [shown, setShown] = useState<{note:string; ref:AyahRef}|null>(null);
   const [contentKey, setContentKey] = useState('');
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
   const phaseRef = useRef<'hidden'|'in'|'out'>('hidden');
 
   useEffect(()=>{
@@ -1457,18 +1518,19 @@ function NoteToast({ note, ayahRef }:{ note:string|null; ayahRef:AyahRef|null })
 /* ════════ SYNCED PLAYER ════════ */
 function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah,
   onPlayChange, onProgress, onExposeControls, baseSurah, speed, autoReplay,
-  replayCount: replayCountProp, onSpeedChange, onAutoReplayChange, onReplayCountChange, onTimeChange }:{
+  replayCount: replayCountProp, replayScope, onSpeedChange, onAutoReplayChange, onReplayCountChange, onTimeChange }:{
   url:string; filename:string; sizeKb:number|null;
   timings:AyahTiming[];
   onAyahChange:(ref:AyahRef|null)=>void;
   onSeekToAyah:(fn:(ref:AyahRef)=>void)=>void;
   onPlayChange?:(p:boolean)=>void;
   onProgress?:(cur:number,dur:number)=>void;
-  onExposeControls?:(c:{toggle:()=>void;skip:(s:number)=>void;seekPct:(p:number)=>void})=>void;
+  onExposeControls?:(c:{toggle:()=>void;skip:(s:number)=>void;seekPct:(p:number)=>void;nextAyah:()=>void;prevAyah:()=>void})=>void;
   baseSurah:number;
   speed:number;
   autoReplay:boolean;
   replayCount:number;
+  replayScope:'range'|'ayah';
   onSpeedChange:(speed:number)=>void;
   onAutoReplayChange:(enabled:boolean)=>void;
   onReplayCountChange:(n:number)=>void;
@@ -1495,8 +1557,13 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
   const autoReplayRef=useRef(false);
   const replayCountRef=useRef(replayCountProp);
   const replayDoneRef=useRef(0);
-  useEffect(()=>{ autoReplayRef.current=autoReplay; },[autoReplay]);
+  const replayScopeRef=useRef<'range'|'ayah'>(replayScope);
+  const ayahRepeatRef=useRef(0);      // repeats done for the current ayah (scope='ayah')
+  const timingsRef=useRef(timings);
+  useEffect(()=>{ autoReplayRef.current=autoReplay; ayahRepeatRef.current=0; },[autoReplay]);
   useEffect(()=>{ replayCountRef.current=replayCountProp; },[replayCountProp]);
+  useEffect(()=>{ replayScopeRef.current=replayScope; ayahRepeatRef.current=0; },[replayScope]);
+  useEffect(()=>{ timingsRef.current=timings; },[timings]);
   useEffect(()=>{ curIdxRef.current=curIdx; },[curIdx]);
   useEffect(()=>{ speedRef.current=speed; if(aRef.current) aRef.current.playbackRate=speed; },[speed]);
 
@@ -1564,19 +1631,41 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
       onProgress?.(t,d);
       const idx=getActiveIdx(t);
       if(idx!==curIdxRef.current){
+        // Ayah-scope tikrar: replay the ayah we just left until count reached
+        if(autoReplayRef.current && replayScopeRef.current==='ayah'
+           && idx===curIdxRef.current+1
+           && ayahRepeatRef.current < replayCountRef.current-1){
+          ayahRepeatRef.current++;
+          setReplayDone(ayahRepeatRef.current);
+          a.currentTime=timings[curIdxRef.current].start_ms*scaleRef.current/1000;
+          return;
+        }
+        ayahRepeatRef.current=0;
+        setReplayDone(0);
         curIdxRef.current=idx;
         setCurIdx(idx);
         onAyahChange(timingRef(timings[idx]));
       }
     };
     a.onended=()=>{
-      if(autoReplayRef.current && replayDoneRef.current < replayCountRef.current-1){
+      // Ayah-scope: the last ayah has no "next boundary", repeat it from onended
+      if(autoReplayRef.current && replayScopeRef.current==='ayah'
+         && timings.length>0
+         && ayahRepeatRef.current < replayCountRef.current-1){
+        ayahRepeatRef.current++;
+        setReplayDone(ayahRepeatRef.current);
+        a.currentTime=(timings[curIdxRef.current]?.start_ms ?? 0)*scaleRef.current/1000;
+        a.play();
+        return;
+      }
+      if(autoReplayRef.current && replayScopeRef.current==='range' && replayDoneRef.current < replayCountRef.current-1){
         replayDoneRef.current++;
         setReplayDone(d=>d+1);
         a.currentTime=0;
         a.play();
       } else {
         replayDoneRef.current=0;
+        ayahRepeatRef.current=0;
         setReplayDone(0);
         playingRef.current=false;setPlaying(false);onPlayChange?.(false);
         setCur(0);draw(0);onAyahChange(null);onTimeChange?.(0,a.duration||0);
@@ -1592,12 +1681,24 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
   const skip=useCallback((s:number)=>{
     const a=aRef.current;if(a)a.currentTime=Math.max(0,Math.min(a.duration,a.currentTime+s));
   },[]);
+  const gotoAyahIdx=useCallback((idx:number)=>{
+    const a=aRef.current, ts=timingsRef.current;
+    if(!a||!ts.length)return;
+    const clamped=Math.max(0,Math.min(ts.length-1,idx));
+    ayahRepeatRef.current=0;
+    a.currentTime=ts[clamped].start_ms*scaleRef.current/1000;
+    if(!playingRef.current)a.play();
+  },[]);
+  const nextAyah=useCallback(()=>gotoAyahIdx(curIdxRef.current+1),[gotoAyahIdx]);
+  const prevAyah=useCallback(()=>gotoAyahIdx(curIdxRef.current-1),[gotoAyahIdx]);
 
   useEffect(()=>{
     onExposeControls?.({
       toggle,
       skip,
-      seekPct:(p:number)=>{ const a=aRef.current;if(a&&a.duration)a.currentTime=p*a.duration; }
+      seekPct:(p:number)=>{ const a=aRef.current;if(a&&a.duration)a.currentTime=p*a.duration; },
+      nextAyah,
+      prevAyah,
     });
   },[]);
 
@@ -1627,7 +1728,7 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
       <div className="sp-time"><span dir="ltr">{fmt(cur)}</span><span dir="ltr">{fmt(dur)}</span></div>
       <div className="sp-ctrl">
         <button className="sp-skip" onClick={()=>skip(-10)}><IcArrowR s={12} c="currentColor"/> ١٠ث</button>
-        <button className="sp-play" onClick={toggle}>{playing?<IcPause s={18} c="#fff"/>:<IcPlay s={18} c="#fff"/>}</button>
+        <button className="sp-play" onClick={toggle} aria-label={playing?'إيقاف':'تشغيل'}>{playing?<IcPause s={18} c="#fff"/>:<IcPlay s={18} c="#fff"/>}</button>
         <button className="sp-skip" onClick={()=>skip(10)}>١٠ث <IcArrowL s={12} c="currentColor"/></button>
       </div>
       <div className="sp-vol">
@@ -1986,6 +2087,9 @@ export default function Home() {
   const [ahzab,setAhzab]=useState<Hizb[]>([]);
   const [ayahTexts,setAyahTexts]=useState<AyahText[]>([]);
   const [loadingText,setLoadingText]=useState(false);
+  const [textError,setTextError]=useState(false);
+  const [catalogLoading,setCatalogLoading]=useState(true);
+  const [catalogError,setCatalogError]=useState(false);
   const [step,setStep]=useState(1);
   const [maxStep,setMaxStep]=useState(1);
   const [dir,setDir]=useState<"fwd"|"bwd">("fwd");
@@ -2005,6 +2109,7 @@ export default function Home() {
   const [fpSpeed,setFpSpeed]=useState(1);
   const [fpAutoReplay,setFpAutoReplay]=useState(false);
   const [fpReplayCount,setFpReplayCount]=useState(3);
+  const [fpReplayScope,setFpReplayScope]=useState<'range'|'ayah'>('range');
   const [fpSpeedOpen,setFpSpeedOpen]=useState(false);
   const [fpTikrarOpen,setFpTikrarOpen]=useState(false);
   const [fpCur,setFpCur]=useState(0);
@@ -2020,12 +2125,13 @@ export default function Home() {
   const [isFullscreen,setIsFullscreen]=useState(false);
   const [readingMode,setReadingMode]=useState(false);
   const seekRef=useRef<((ref:AyahRef)=>void)|null>(null);
+  const lastTextFetchRef=useRef<(()=>void)|null>(null);
   const quranFullRef=useRef<HTMLDivElement>(null);
   const mushafScrollRef = useRef<HTMLDivElement>(null);
   const fsProgressRef=useRef<HTMLDivElement>(null);
   const previewRef=useRef<HTMLAudioElement|null>(null);
   const fpProgressRef=useRef<HTMLDivElement|null>(null);
-  const fpControlsRef=useRef<{toggle:()=>void;skip:(s:number)=>void;seekPct:(p:number)=>void}|null>(null);
+  const fpControlsRef=useRef<{toggle:()=>void;skip:(s:number)=>void;seekPct:(p:number)=>void;nextAyah:()=>void;prevAyah:()=>void}|null>(null);
   const previewTimerRef=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
   const gen=useAudioGenerator();
 
@@ -2033,6 +2139,33 @@ export default function Home() {
   useEffect(()=>{
     document.documentElement.className = dark ? "dark" : "light";
   },[dark]);
+
+  // Restore persisted prefs once on mount (client-only, after hydration)
+  const prefsLoadedRef=useRef(false);
+  useEffect(()=>{
+    const p = loadPrefs();
+    if(p.theme) setDark(p.theme==='dark');
+    if(typeof p.speed==='number' && p.speed>=0.5 && p.speed<=2) setFpSpeed(p.speed);
+    if(typeof p.autoReplay==='boolean') setFpAutoReplay(p.autoReplay);
+    if(typeof p.replayCount==='number' && p.replayCount>=1 && p.replayCount<=99) setFpReplayCount(p.replayCount);
+    if(p.replayScope==='ayah'||p.replayScope==='range') setFpReplayScope(p.replayScope);
+    if(typeof p.lastReciter==='number' && RECITERS_META[p.lastReciter]) setSelR(p.lastReciter);
+    prefsLoadedRef.current=true;
+  },[]);
+
+  // Persist prefs on change (only after the initial restore, so defaults
+  // never clobber stored values before hydration completes)
+  useEffect(()=>{
+    if(!prefsLoadedRef.current) return;
+    savePrefs({
+      theme: dark?'dark':'light',
+      speed: fpSpeed,
+      autoReplay: fpAutoReplay,
+      replayCount: fpReplayCount,
+      replayScope: fpReplayScope,
+      lastReciter: selR,
+    });
+  },[dark,fpSpeed,fpAutoReplay,fpReplayCount,fpReplayScope,selR]);
 
   // Reading mode: header compresses when user scrolls down in Quran text
   useEffect(()=>{
@@ -2055,6 +2188,22 @@ export default function Home() {
     return () => el.removeEventListener("scroll", onScroll);
   },[step]);
 
+  // Catalog (reciters/surahs/ahzab) — required for the app to work at all,
+  // so failures surface as a retryable error banner instead of a dead UI.
+  const loadCatalog=useCallback(async()=>{
+    setCatalogError(false);
+    setCatalogLoading(true);
+    try{
+      const [rec,sur,ahz]=await Promise.all([
+        fetch(`${API}/recitations`).then(r=>{if(!r.ok)throw new Error();return r.json();}),
+        fetch(`${API}/surahs`).then(r=>{if(!r.ok)throw new Error();return r.json();}),
+        fetch(`${API}/ahzab`).then(r=>{if(!r.ok)throw new Error();return r.json();}),
+      ]);
+      setReciters(rec);setSurahs(sur);setAhzab(ahz);
+    }catch{ setCatalogError(true); }
+    finally{ setCatalogLoading(false); }
+  },[]);
+
   useEffect(()=>{
     // Fixed device ID — single user, all browsers share the same history
     const did = "noureddine";
@@ -2066,10 +2215,8 @@ export default function Home() {
       rows.forEach(n=>{ map[`${n.surah_num}:${n.ayah_num}`]=n.note_text; });
       setNotes(map);
     }).catch(()=>{});
-    fetch(`${API}/recitations`).then(r=>r.json()).then(setReciters).catch(()=>{});
-    fetch(`${API}/surahs`).then(r=>r.json()).then(setSurahs).catch(()=>{});
-    fetch(`${API}/ahzab`).then(r=>r.json()).then(setAhzab).catch(()=>{});
-  },[]);
+    loadCatalog();
+  },[loadCatalog]);
 
   // Stop preview when leaving step 1
   useEffect(()=>{ if(step!==1) stopPreview(); },[step]);
@@ -2128,7 +2275,9 @@ export default function Home() {
   useEffect(()=>{ if(selS){setAMin(1);setAMax(Math.min(7,selS.verses_count));} },[selS]);
 
   const fetchText=useCallback(async(surahNum:number,min:number,max:number)=>{
+    lastTextFetchRef.current=()=>fetchText(surahNum,min,max);
     setLoadingText(true);
+    setTextError(false);
     try {
       const res=await fetch(`${QURAN_TEXT_API}/surah/${surahNum}/quran-uthmani`);
       if(!res.ok) throw new Error("failed");
@@ -2139,12 +2288,14 @@ export default function Home() {
         surahName:surahs.find(s=>s.id===surahNum)?.name_arabic ?? "",
       }));
       setAyahTexts(dedupeAyahs(all.filter(a=>a.numberInSurah>=min&&a.numberInSurah<=max)));
-    } catch{setAyahTexts([]);}
+    } catch{setAyahTexts([]);setTextError(true);}
     finally{setLoadingText(false);}
   },[surahs]);
 
   const fetchHizbText=useCallback(async(hizb:Hizb)=>{
+    lastTextFetchRef.current=()=>fetchHizbText(hizb);
     setLoadingText(true);
+    setTextError(false);
     try {
       const segments = [];
       for(let sn=hizb.start_surah; sn<=hizb.end_surah; sn++){
@@ -2165,7 +2316,7 @@ export default function Home() {
           .map(a=>({...a,surahNumber:seg.surah,surahName:seg.name}));
       }));
       setAyahTexts(dedupeAyahs(batches.flat()));
-    } catch{setAyahTexts([]);}
+    } catch{setAyahTexts([]);setTextError(true);}
     finally{setLoadingText(false);}
   },[surahs]);
 
@@ -2177,6 +2328,12 @@ export default function Home() {
     goTo(4);
   };
   const handleGenerate=()=>{
+    if(sessionMode) savePrefs({ lastSession:{
+      mode:sessionMode, selMode,
+      surah:selS?.id, hizb:selHizb?.hizb_num,
+      aMin:whole?1:aMin, aMax:whole?(selS?.verses_count??undefined):aMax, whole,
+      ts:Date.now(),
+    }});
     if(selMode==='hizb'&&selHizb){
       setActiveAyah({surah:selHizb.start_surah, ayah:selHizb.start_ayah});
       gen.generateHizb({
@@ -2284,7 +2441,7 @@ export default function Home() {
         <header className="hdr">
           <div className="hdr-inner">
             <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <button className="theme-btn" onClick={()=>setDark(!dark)} title="تبديل المظهر">
+              <button className="theme-btn" onClick={()=>setDark(!dark)} title="تبديل المظهر" aria-label={dark?'التبديل إلى المظهر الفاتح':'التبديل إلى المظهر الداكن'}>
                 {dark?<IcSun s={18} c="var(--gold)"/>:<IcCrescent s={18} c="var(--gold)"/>}
               </button>
               {sessionMode&&(
@@ -2321,7 +2478,7 @@ export default function Home() {
                 </svg>
               </div>
             </div>
-            <button className="hist-btn" onClick={()=>setShowHistory(true)} title="سجل القراءة">
+            <button className="hist-btn" onClick={()=>setShowHistory(true)} title="سجل القراءة" aria-label="سجل القراءة">
               <IcHistory s={18} c="var(--gold)"/>
               {completedHizbs.size>0&&<span className="hist-btn-badge">{toAr(completedHizbs.size)}</span>}
             </button>
@@ -2352,9 +2509,22 @@ export default function Home() {
                 <div className="wcard-sub">اختر صوتًا من أجمل أصوات تلاوة القرآن الكريم</div></div>
             </div>
             <div className="wcard-body">
-              <div className="rg">
-                {reciters.map(r=><ReciterCard key={r.id} r={r} selected={selR===r.id} playing={previewingId===r.id} onClick={()=>handleSelectReciter(r.id)}/>)}
-              </div>
+              {catalogError ? (
+                <div className="data-error data-error-block" role="alert">
+                  <IcClose s={22} c="var(--gold)"/>
+                  <div className="data-error-title">تعذّر تحميل قائمة القراء</div>
+                  <div className="data-error-sub">تحقق من اتصالك بالإنترنت ثم أعد المحاولة</div>
+                  <button className="btn-retry" onClick={loadCatalog}><IcReset s={14} c="currentColor"/> إعادة المحاولة</button>
+                </div>
+              ) : catalogLoading ? (
+                <div className="rg" aria-busy="true" aria-label="جارٍ تحميل القراء">
+                  {Array.from({length:10}).map((_,i)=><div key={i} className="rc rc-skeleton"/>)}
+                </div>
+              ) : (
+                <div className="rg">
+                  {reciters.map(r=><ReciterCard key={r.id} r={r} selected={selR===r.id} playing={previewingId===r.id} onClick={()=>handleSelectReciter(r.id)}/>)}
+                </div>
+              )}
             </div>
             <div className="wcard-footer">
               <div/>
@@ -2385,14 +2555,25 @@ export default function Home() {
               {selMode==='surah'?(<>
                 <div className="search-wrap">
                   <span className="si-icon"><IcSearch s={16} c="currentColor"/></span>
-                  <input className="srch" placeholder="ابحث بالاسم أو الرقم..." value={search} onChange={e=>setSearch(e.target.value)}/>
-                  {search&&<button className="srch-x" onClick={()=>setSearch("")}><IcClose s={12} c="currentColor"/></button>}
+                  <input className="srch" placeholder="ابحث بالاسم أو الرقم..." value={search} onChange={e=>setSearch(e.target.value)} aria-label="ابحث عن سورة بالاسم أو الرقم"/>
+                  {search&&<button className="srch-x" onClick={()=>setSearch("")} aria-label="مسح البحث"><IcClose s={12} c="currentColor"/></button>}
                 </div>
-                <div className="sg">
+                {search && filtered.length===0 && (
+                  <div className="empty-state">
+                    <span className="empty-state-icon"><IcSearch s={28} c="currentColor"/></span>
+                    <span className="empty-state-title">لا توجد نتائج لـ «{search}»</span>
+                    <span className="empty-state-sub">جرّب البحث بالاسم العربي أو رقم السورة</span>
+                    <button className="btn-retry" onClick={()=>setSearch("")}><IcClose s={12} c="currentColor"/> مسح البحث</button>
+                  </div>
+                )}
+                <div className="sg" role="listbox" aria-label="قائمة السور">
                   {filtered.map((s,i)=>{
                     const hpct = hifdPctBySurah.get(s.id);
                     return (
-                    <div key={s.id} className={`si${selS?.id===s.id?" sel":""}`} style={{"--idx":i} as any} onClick={()=>setSelS(s)}>
+                    <div key={s.id} className={`si${selS?.id===s.id?" sel":""}`} style={{"--idx":i} as any}
+                      role="option" aria-selected={selS?.id===s.id} tabIndex={0}
+                      onClick={()=>setSelS(s)}
+                      onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setSelS(s);}}}>
                       <span className="si-n">{toAr(s.id)}</span>
                       <div className="si-body"><span className="si-ar">{s.name_arabic}</span>
                         <span className="si-en">{s.translated_name} · {toAr(s.verses_count)} آية</span></div>
@@ -2485,7 +2666,8 @@ export default function Home() {
                     <div className="qtext-hdr">
                       <span>النص القرآني</span>
                       <button className="btn-fs-text" onClick={toggleFullscreen}
-                        title={isFullscreen?'خروج من ملء الشاشة':'قراءة ملء الشاشة'}>
+                        title={isFullscreen?'خروج من ملء الشاشة':'قراءة ملء الشاشة'}
+                        aria-label={isFullscreen?'الخروج من ملء الشاشة':'قراءة بملء الشاشة'}>
                         {isFullscreen
                           ? <IcExitFullscreen s={15} c="var(--textD)"/>
                           : <IcFullscreen s={15} c="var(--textD)"/>}
@@ -2494,6 +2676,14 @@ export default function Home() {
                     </div>
                     {loadingText
                       ? <div className="qloading"><span className="mq-spin"/>جارٍ تحميل النص...</div>
+                      : textError
+                      ? <div className="data-error data-error-block" role="alert">
+                          <div className="data-error-title">تعذّر تحميل النص القرآني</div>
+                          <div className="data-error-sub">خدمة alquran.cloud غير متاحة حالياً — تحقق من الاتصال</div>
+                          <button className="btn-retry" onClick={()=>lastTextFetchRef.current?.()}>
+                            <IcReset s={14} c="currentColor"/> إعادة المحاولة
+                          </button>
+                        </div>
                       : <QuranTextPanel
                           ayahs={ayahTexts} surahNum={selS?.id??selHizb?.start_surah??1} surahName={selS?.name_arabic??surahs.find(s=>s.id===selHizb?.start_surah)?.name_arabic??""}
                           activeAyah={activeAyah}
@@ -2640,7 +2830,14 @@ export default function Home() {
 
       {step===4&&listenMode==='listen'&&(
         <div className={`float-player${isFullscreen?' fp-fs-hidden':''}`}>
-          <div className={`fp-glass${fpExpanded?' fp-expanded':''}`}>
+          <div className={`fp-glass${fpExpanded?' fp-expanded':''}`} role="region" aria-label="مشغل الصوت">
+            {/* Screen-reader playback announcements */}
+            <div className="sr-only" aria-live="polite" role="status">
+              {gen.status==='error' ? `خطأ في التحميل: ${gen.error??''}`
+                : gen.status!=='idle'&&gen.status!=='done' ? 'جارٍ تحضير الصوت'
+                : gen.status==='done' ? `${fpPlaying?'يتم التشغيل':'متوقف'}${activeAyah?` — ${formatAyahRef(activeAyah)}`:''}`
+                : ''}
+            </div>
             <div className="fp-details">
               {gen.status!=="idle"&&gen.status!=="done"&&(
                 <div className="fp-details-inner">
@@ -2660,6 +2857,7 @@ export default function Home() {
                     speed={fpSpeed}
                     autoReplay={fpAutoReplay}
                     replayCount={fpReplayCount}
+                    replayScope={fpReplayScope}
                     onSpeedChange={setFpSpeed}
                     onAutoReplayChange={setFpAutoReplay}
                     onReplayCountChange={setFpReplayCount}
@@ -2684,11 +2882,18 @@ export default function Home() {
                         <IcPlay s={15} c="#0c1020"/> توليد
                       </button>
                     )}
-                    {gen.status==='done'&&(
-                      <button className="fp-play-btn" onClick={()=>fpControlsRef.current?.toggle()} title={fpPlaying?'إيقاف':'تشغيل'}>
+                    {gen.status==='done'&&(<>
+                      <button className="fp-ayah-nav" onClick={()=>fpControlsRef.current?.prevAyah()} aria-label="الآية السابقة" title="الآية السابقة">
+                        <IcArrowR s={13} c="currentColor"/><IcDiamond s={7} c="currentColor"/>
+                      </button>
+                      <button className="fp-play-btn" onClick={()=>fpControlsRef.current?.toggle()}
+                        aria-label={fpPlaying?'إيقاف التلاوة':'تشغيل التلاوة'} title={fpPlaying?'إيقاف':'تشغيل'}>
                         {fpPlaying?<IcPause s={19} c="#fff"/>:<IcPlay s={19} c="#fff"/>}
                       </button>
-                    )}
+                      <button className="fp-ayah-nav" onClick={()=>fpControlsRef.current?.nextAyah()} aria-label="الآية التالية" title="الآية التالية">
+                        <IcDiamond s={7} c="currentColor"/><IcArrowL s={13} c="currentColor"/>
+                      </button>
+                    </>)}
                     {gen.status!=='idle'&&gen.status!=='done'&&(
                       <div className="fp-loading-dot"><span className="mq-spin"/></div>
                     )}
@@ -2712,7 +2917,7 @@ export default function Home() {
                 </div>
                 {/* Speed: collapsed = current value badge, expanded = all options */}
                 {fpSpeedOpen ? (
-                  <div className="fp-speed-mini">
+                  <div className="fp-speed-mini" role="group" aria-label="سرعة التشغيل">
                     {[0.5,0.75,1,1.25,1.5,2].map(s=>(
                       <button key={s} className={`fp-speed-btn${fpSpeed===s?' active':''}`}
                         onClick={()=>{setFpSpeed(s);setFpSpeedOpen(false);}}>
@@ -2721,7 +2926,8 @@ export default function Home() {
                     ))}
                   </div>
                 ) : (
-                  <button className="fp-speed-btn fp-speed-compact" onClick={()=>setFpSpeedOpen(true)}>
+                  <button className="fp-speed-btn fp-speed-compact" onClick={()=>setFpSpeedOpen(true)}
+                    aria-label={`سرعة التشغيل الحالية ${fpSpeed}x — اضغط للتغيير`}>
                     {fpSpeed}x
                   </button>
                 )}
@@ -2732,27 +2938,37 @@ export default function Home() {
                   <span>تكرار</span>
                 </button>
                 {fpAutoReplay&&(fpTikrarOpen ? (
-                  <div className="fp-rcount-row">
+                  <div className="fp-rcount-row" role="group" aria-label="عدد مرات التكرار">
+                    <button className={`fp-rcbtn fp-rscope${fpReplayScope==='ayah'?' active':''}`}
+                      aria-label="تكرار كل آية على حدة"
+                      onClick={()=>setFpReplayScope(s=>s==='ayah'?'range':'ayah')}>
+                      {fpReplayScope==='ayah'?'آية':'المقطع'}
+                    </button>
                     {[2,3,5,7,10].map(n=>(
                       <button key={n} className={`fp-rcbtn${fpReplayCount===n?' active':''}`}
+                        aria-label={`${n} مرات`}
                         onClick={()=>{setFpReplayCount(n);setFpTikrarOpen(false);}}>
                         {toAr(n)}×
                       </button>
                     ))}
                     <input type="number" min={1} max={99} className="fp-rcinput" autoFocus
+                      aria-label="عدد مخصص لمرات التكرار"
                       value={fpReplayCount}
                       onChange={e=>{const v=Math.max(1,Math.min(99,parseInt(e.target.value)||1));setFpReplayCount(v);}}
                       onKeyDown={e=>{if(e.key==='Enter')setFpTikrarOpen(false);}}/>
                   </div>
                 ) : (
-                  <button className="fp-rcbtn active" onClick={()=>setFpTikrarOpen(true)}>
-                    {toAr(fpReplayCount)}×
+                  <button className="fp-rcbtn active" onClick={()=>setFpTikrarOpen(true)}
+                    aria-label={`التكرار: ${fpReplayCount} مرات لكل ${fpReplayScope==='ayah'?'آية':'مقطع'} — اضغط للتغيير`}>
+                    {toAr(fpReplayCount)}×{fpReplayScope==='ayah'?' آية':''}
                   </button>
                 ))}
                 <div className="fp-right">
                   {gen.status==='done'&&(
                     <button className="fp-chevron" onClick={()=>setFpExpanded(v=>!v)}
-                      title={fpExpanded?'إخفاء التفاصيل':'عرض التفاصيل'}>
+                      title={fpExpanded?'إخفاء التفاصيل':'عرض التفاصيل'}
+                      aria-label={fpExpanded?'إخفاء تفاصيل المشغل':'عرض تفاصيل المشغل'}
+                      aria-expanded={fpExpanded}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         {fpExpanded
                           ?<polyline points="18 15 12 9 6 15"/>
@@ -3122,6 +3338,33 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .fp-toggle-mini.active{background:rgba(42,157,143,.16);border-color:rgba(42,157,143,.42);color:var(--teal3)}
 .fp-toggle-mark{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.55;box-shadow:0 0 0 3px rgba(255,255,255,.04)}
 .fp-toggle-mini.active .fp-toggle-mark{opacity:1;box-shadow:0 0 12px rgba(42,157,143,.62)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+/* DATA STATES — loading skeletons, errors with retry, empty states */
+.data-error{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:rgba(201,80,60,.07);border:1px solid rgba(201,80,60,.25);border-radius:12px;padding:12px 16px;font-size:.85rem;color:var(--text)}
+.data-error-block{flex-direction:column;justify-content:center;text-align:center;padding:36px 20px;gap:8px}
+.data-error-title{font-size:1rem;font-weight:700;color:var(--text)}
+.data-error-sub{font-size:.8rem;color:var(--textD)}
+.btn-retry{display:inline-flex;align-items:center;gap:7px;background:var(--bg3);border:1px solid var(--border2);border-radius:10px;color:var(--gold);font-family:var(--ff);font-size:.84rem;font-weight:600;padding:10px 18px;min-height:44px;cursor:pointer;transition:all .2s;margin-top:4px}
+.btn-retry:hover{background:rgba(201,168,76,.12);border-color:var(--gold)}
+.rc-skeleton{min-height:120px;animation:skelPulse 1.4s ease-in-out infinite;cursor:default;pointer-events:none}
+@keyframes skelPulse{0%,100%{opacity:.45}50%{opacity:.8}}
+.empty-state{display:flex;flex-direction:column;align-items:center;gap:10px;padding:36px 20px;text-align:center;color:var(--textD)}
+.empty-state-icon{opacity:.5}
+.empty-state-title{font-size:.95rem;font-weight:700;color:var(--text)}
+.empty-state-sub{font-size:.8rem;color:var(--textD)}
+.fp-ayah-nav{display:flex;align-items:center;gap:1px;background:var(--bg4);border:1px solid var(--border);border-radius:999px;color:var(--textD);width:34px;height:34px;justify-content:center;cursor:pointer;transition:all .18s;flex-shrink:0}
+.fp-ayah-nav:hover{color:var(--gold);border-color:rgba(201,168,76,.4)}
+.fp-rscope{font-weight:700;letter-spacing:.02em}
+/* WCAG touch targets — enlarge compact player controls on touch devices */
+@media(pointer:coarse){
+  .fp-ayah-nav{width:44px;height:44px}
+  .fp-speed-btn,.fp-rcbtn,.fp-toggle-mini{min-height:44px;padding-block:10px}
+  .fp-rcinput{min-height:44px;width:44px}
+  .fp-chevron{min-width:44px;min-height:44px}
+  .srch-x{min-width:44px;min-height:44px}
+  .tf-close{min-width:44px;min-height:44px}
+}
 .fp-speed-compact{font-weight:700;color:var(--gold)!important;border-color:rgba(201,168,76,.35)!important;background:rgba(201,168,76,.1)!important}
 .fp-rcount-row{display:flex;align-items:center;gap:3px;flex-shrink:0;animation:fpRowIn .15s ease}
 @keyframes fpRowIn{from{opacity:0;transform:scaleX(.85)}to{opacity:1;transform:scaleX(1)}}
@@ -3793,6 +4036,12 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .wcard-finish-sub{font-size:.72rem;color:var(--textD)}
 
 /* ─── HPICKER PROGRESS ─── */
+.hpicker-legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:.68rem;color:var(--textD);padding:2px 2px 0}
+.hleg{display:inline-flex;align-items:center;gap:5px}
+.hleg-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.hleg-done .hleg-dot{background:var(--teal3)}
+.hleg-sugg .hleg-dot{background:var(--gold);animation:skelPulse 1.4s ease-in-out infinite}
+.hleg-sel .hleg-dot{background:transparent;border:2px solid var(--gold)}
 .hpicker-progress{height:6px;background:var(--bg4);border-radius:3px;overflow:hidden;position:relative;margin-bottom:4px}
 .hpicker-prog-bar{height:100%;background:linear-gradient(90deg,var(--teal),var(--gold));border-radius:3px;transition:width .8s ease}
 .hpicker-prog-lbl{position:absolute;top:50%;right:0;transform:translateY(-50%);font-size:.6rem;color:var(--textD);background:var(--bg2);padding:0 4px;border-radius:2px;display:none}
