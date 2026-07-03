@@ -71,7 +71,7 @@ body {
   min-height: 100dvh;
   overflow-x: hidden;
   direction: rtl;
-  text-align: right;
+  text-align: start;
   line-height: 1.7;
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
