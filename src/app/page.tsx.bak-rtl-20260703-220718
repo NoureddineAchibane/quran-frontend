@@ -3,8 +3,6 @@ import React, { useEffect, useState, useRef, useCallback, useMemo } from "react"
 import { useAudioGenerator, AyahTiming } from "@/hooks/useAudioGenerator";
 import type { HizbGeneratorRequest } from "@/hooks/useAudioGenerator";
 import { useMaqasidStream, MaqasidData } from "@/hooks/useMaqasidStream";
-import PrayerBar from "@/components/PrayerBar";
-import DailyWird from "@/components/DailyWird";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const QURAN_TEXT_API  = "https://api.alquran.cloud/v1";
@@ -86,26 +84,14 @@ interface AyahText {
 }
 type NotesMap = Record<string, string>; // "surah:ayah" → note text
 interface AyahRef { surah:number; ayah:number; }
-// ── Digits ───────────────────────────────────────────────────────────────
-// normalizeDigits: convert any Arabic-Indic (٠-٩) or Persian (۰-۹) digits to
-// Western 0-9. Applied at render level so the UI shows Western digits
-// everywhere (surah/ayah numbers, counts, badges, metadata, indicators).
-const _WESTERN_DIGITS: Record<string,string> = {
-  '٠':'0','١':'1','٢':'2','٣':'3','٤':'4','٥':'5','٦':'6','٧':'7','٨':'8','٩':'9',
-  '۰':'0','۱':'1','۲':'2','۳':'3','۴':'4','۵':'5','۶':'6','۷':'7','۸':'8','۹':'9',
-};
-function normalizeDigits(input: string | number | null | undefined): string {
-  return String(input ?? '').replace(/[٠-٩۰-۹]/g, d => _WESTERN_DIGITS[d] ?? d);
-}
-// dg: render a number/string for display with Western digits.
-const dg = (n: string | number) => normalizeDigits(n);
+function toAr(n:number){ return String(n).replace(/\d/g,d=>"٠١٢٣٤٥٦٧٨٩"[+d]); }
 function ayahKey(ref:AyahRef){ return `${ref.surah}:${ref.ayah}`; }
 function sameAyah(a:AyahRef|null|undefined,b:AyahRef|null|undefined){
   return Boolean(a&&b&&a.surah===b.surah&&a.ayah===b.ayah);
 }
 function formatAyahRef(ref:AyahRef|null|undefined, compact=false){
   if(!ref)return "";
-  return compact ? `${dg(ref.surah)}:${dg(ref.ayah)}` : `سورة ${dg(ref.surah)} · آية ${dg(ref.ayah)}`;
+  return compact ? `${toAr(ref.surah)}:${toAr(ref.ayah)}` : `سورة ${toAr(ref.surah)} · آية ${toAr(ref.ayah)}`;
 }
 function dedupeAyahs(ayahs: AyahText[]) {
   const seen = new Set<string>();
@@ -433,7 +419,7 @@ function HizbPicker({ ahzab, surahs, selected, onSelect, completedHizbs, suggest
       {done.size > 0 && (
         <div className="hpicker-progress">
           <div className="hpicker-prog-bar" style={{width:`${(done.size/60)*100}%`}}/>
-          <span className="hpicker-prog-lbl">{dg(done.size)}/60 حزب مكتمل</span>
+          <span className="hpicker-prog-lbl">{toAr(done.size)}/٦٠ حزب مكتمل</span>
         </div>
       )}
 
@@ -450,7 +436,7 @@ function HizbPicker({ ahzab, surahs, selected, onSelect, completedHizbs, suggest
           {juzes.map(j=>(
             <button key={j} className={`hpicker-juz-btn${activeJuz===j?" active":""}${doneInJuz(j)===2?" done":doneInJuz(j)===1?" half":""}`}
               onClick={()=>setActiveJuz(j)}>
-              {dg(j)}
+              {toAr(j)}
               {doneInJuz(j)===2 && <span className="hpicker-juz-dot"/>}
             </button>
           ))}
@@ -475,13 +461,13 @@ function HizbPicker({ ahzab, surahs, selected, onSelect, completedHizbs, suggest
           return (
             <div key={h.hizb_num} className={`hcard${isSel?" hcard-sel":""}${isDone?" hcard-done":""}${isSugg&&!isDone?" hcard-sugg":""}`}
               role="button" tabIndex={0}
-              aria-label={`حزب ${dg(h.hizb_num)}${isDone?' — مكتمل':''}${isSugg&&!isDone?' — المقترح التالي':''}${isSel?' — محدد':''}`}
+              aria-label={`حزب ${toAr(h.hizb_num)}${isDone?' — مكتمل':''}${isSugg&&!isDone?' — المقترح التالي':''}${isSel?' — محدد':''}`}
               aria-pressed={isSel}
               onClick={()=>onSelect(h)}
               onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelect(h);}}}>
               <div className="hcard-badge">
                 <IcHizb s={14} c={isSel?"var(--gold)":isDone?"var(--teal2)":"currentColor"}/>
-                <span>حزب {dg(h.hizb_num)}</span>
+                <span>حزب {toAr(h.hizb_num)}</span>
                 <span className="hcard-half">{i===0?"النصف الأول":"النصف الثاني"}</span>
                 {isDone && <span className="hcard-done-badge"><IcCheck s={10} c="var(--teal3)"/> تم</span>}
                 {isSugg && !isDone && <span className="hcard-sugg-badge">التالي ▸</span>}
@@ -490,13 +476,13 @@ function HizbPicker({ ahzab, surahs, selected, onSelect, completedHizbs, suggest
                 <div className="hcard-point">
                   <span className="hcard-pt-lbl">من</span>
                   <span className="hcard-surah">{surahName(h.start_surah)}</span>
-                  <span className="hcard-ayah">آية {dg(h.start_ayah)}</span>
+                  <span className="hcard-ayah">آية {toAr(h.start_ayah)}</span>
                 </div>
                 {spansSurahs&&<div className="hcard-arrow">←</div>}
                 <div className="hcard-point">
                   <span className="hcard-pt-lbl">إلى</span>
                   <span className="hcard-surah">{surahName(h.end_surah)}</span>
-                  <span className="hcard-ayah">آية {dg(h.end_ayah)}</span>
+                  <span className="hcard-ayah">آية {toAr(h.end_ayah)}</span>
                 </div>
               </div>
               {isSel&&<div className="hcard-glow"/>}
@@ -509,11 +495,11 @@ function HizbPicker({ ahzab, surahs, selected, onSelect, completedHizbs, suggest
       {selected&&(
         <div className="hpicker-sel-summary">
           <IcHizb s={15} c="var(--gold)"/>
-          <span>الحزب {dg(selected.hizb_num)} · الجزء {dg(selected.juz_num)}</span>
+          <span>الحزب {toAr(selected.hizb_num)} · الجزء {toAr(selected.juz_num)}</span>
           <span className="hpicker-sel-range">
-            {surahName(selected.start_surah)} {dg(selected.start_ayah)}
+            {surahName(selected.start_surah)} {toAr(selected.start_ayah)}
             &nbsp;—&nbsp;
-            {surahName(selected.end_surah)} {dg(selected.end_ayah)}
+            {surahName(selected.end_surah)} {toAr(selected.end_ayah)}
           </span>
         </div>
       )}
@@ -641,17 +627,17 @@ function HistoryPanel({ show, onClose, history, ahzab, surahs }:{
           {/* Stats bar */}
           <div className="hist-stats">
             <div className="hist-stat">
-              <span className="hist-stat-n">{dg(total)}</span>
+              <span className="hist-stat-n">{toAr(total)}</span>
               <span className="hist-stat-l">حزب مكتمل</span>
             </div>
             <div className="hist-stat-div"/>
             <div className="hist-stat">
-              <span className="hist-stat-n">{dg(pct)}%</span>
+              <span className="hist-stat-n">{toAr(pct)}٪</span>
               <span className="hist-stat-l">من القرآن</span>
             </div>
             <div className="hist-stat-div"/>
             <div className="hist-stat">
-              <span className="hist-stat-n">{dg(history.length)}</span>
+              <span className="hist-stat-n">{toAr(history.length)}</span>
               <span className="hist-stat-l">جلسة</span>
             </div>
           </div>
@@ -668,7 +654,7 @@ function HistoryPanel({ show, onClose, history, ahzab, surahs }:{
               return (
                 <div key={n} className={`hist-cell${isDone?' hist-cell-done':''}`}
                   title={isDone?`حزب ${n} — جزء ${h?.juz_num??''}`:`حزب ${n}`}>
-                  {isDone ? <IcCheck s={9} c="var(--teal2)"/> : <span className="hist-cell-n">{dg(n)}</span>}
+                  {isDone ? <IcCheck s={9} c="var(--teal2)"/> : <span className="hist-cell-n">{toAr(n)}</span>}
                 </div>
               );
             })}
@@ -686,7 +672,7 @@ function HistoryPanel({ show, onClose, history, ahzab, surahs }:{
                     <div className="hist-entry-left">
                       <span className="hist-entry-mode" style={{color:modeColor(e.session_mode)}}>{modeLabel(e.session_mode)}</span>
                       <span className="hist-entry-what">
-                        {hizbData ? `حزب ${dg(hizbData.hizb_num)} · ج${dg(hizbData.juz_num)}` :
+                        {hizbData ? `حزب ${toAr(hizbData.hizb_num)} · ج${toAr(hizbData.juz_num)}` :
                          surahData ? surahData.name_arabic : '—'}
                       </span>
                     </div>
@@ -716,21 +702,21 @@ function HistoryPanel({ show, onClose, history, ahzab, surahs }:{
                 transform="rotate(-90 40 40)"
                 style={{transition:'stroke-dasharray .6s ease'}}/>
               <text x="40" y="36" textAnchor="middle" fill="var(--gold)"
-                fontSize="13" fontWeight="700" fontFamily="var(--ff)">{dg(quranHifdPct)}%</text>
+                fontSize="13" fontWeight="700" fontFamily="var(--ff)">{toAr(quranHifdPct)}٪</text>
               <text x="40" y="50" textAnchor="middle" fill="var(--textD)"
                 fontSize="6.5" fontFamily="var(--ff)">من القرآن</text>
             </svg>
             <div className="hifd-ring-stats">
               <div className="hifd-rstat">
-                <span className="hifd-rstat-n" style={{color:'var(--teal2)'}}>{dg(completedSurahs)}</span>
+                <span className="hifd-rstat-n" style={{color:'var(--teal2)'}}>{toAr(completedSurahs)}</span>
                 <span className="hifd-rstat-l">سورة مكتملة</span>
               </div>
               <div className="hifd-rstat">
-                <span className="hifd-rstat-n" style={{color:'var(--gold)'}}>{dg(inProgressSurahs)}</span>
+                <span className="hifd-rstat-n" style={{color:'var(--gold)'}}>{toAr(inProgressSurahs)}</span>
                 <span className="hifd-rstat-l">في التقدم</span>
               </div>
               <div className="hifd-rstat">
-                <span className="hifd-rstat-n">{dg(totalHifdedAyahs)}</span>
+                <span className="hifd-rstat-n">{toAr(totalHifdedAyahs)}</span>
                 <span className="hifd-rstat-l">آية محفوظة</span>
               </div>
             </div>
@@ -748,7 +734,7 @@ function HistoryPanel({ show, onClose, history, ahzab, surahs }:{
                   <span className={`hifd-surah-pct${surahPct===100?' hifd-pct-done':''}`}>
                     {surahPct===100
                       ? <><IcCheck s={11} c="var(--teal2)"/> مكتملة</>
-                      : <>{dg(hifded)}<span className="hifd-pct-sep">/</span>{dg(totalAyahs)} آية — {dg(surahPct)}%</>
+                      : <>{toAr(hifded)}<span className="hifd-pct-sep">/</span>{toAr(totalAyahs)} آية — {toAr(surahPct)}٪</>
                     }
                   </span>
                 </div>
@@ -1064,7 +1050,7 @@ function AyahRangePicker({ total,min,max,whole,onMin,onMax,onWhole }:{
               <select className="arp-sel" value={min}
                 onChange={e=>{const v=+e.target.value;onMin(v);if(v>max)onMax(v);}}>
                 {Array.from({length:total},(_,i)=>i+1).map(n=>(
-                  <option key={n} value={n}>آية {dg(n)}</option>
+                  <option key={n} value={n}>آية {toAr(n)}</option>
                 ))}
               </select>
               <span className="arp-arr">▾</span>
@@ -1077,7 +1063,7 @@ function AyahRangePicker({ total,min,max,whole,onMin,onMax,onWhole }:{
               <select className="arp-sel" value={max}
                 onChange={e=>{const v=+e.target.value;onMax(v);if(v<min)onMin(v);}}>
                 {Array.from({length:total},(_,i)=>i+1).filter(n=>n>=min).map(n=>(
-                  <option key={n} value={n}>آية {dg(n)}</option>
+                  <option key={n} value={n}>آية {toAr(n)}</option>
                 ))}
               </select>
               <span className="arp-arr">▾</span>
@@ -1088,24 +1074,24 @@ function AyahRangePicker({ total,min,max,whole,onMin,onMax,onWhole }:{
       <div className="arp-bar-wrap">
         <div className="arp-bar">
           <div className="arp-fill" style={{
-            insetInlineStart:`${whole?0:((min-1)/total)*100}%`,
+            left:`${whole?0:((min-1)/total)*100}%`,
             width:`${whole?100:((cnt/total)*100)}%`
           }}/>
           {total<=80 && Array.from({length:total},(_,i)=>i+1).map(n=>(
             <div key={n} className={`arp-tick${(whole||(n>=min&&n<=max))?" in":""}`}
-              style={{insetInlineStart:`${((n-0.5)/total)*100}%`}}/>
+              style={{left:`${((n-0.5)/total)*100}%`}}/>
           ))}
         </div>
         <div className="arp-blabels">
-          <span>1</span>
-          <span className="arp-binfo">{whole?`كاملة · ${dg(total)} آية`:`${dg(min)}←${dg(max)} · ${dg(cnt)} آية (${pct}%)`}</span>
-          <span>{dg(total)}</span>
+          <span>١</span>
+          <span className="arp-binfo">{whole?`كاملة · ${toAr(total)} آية`:`${toAr(min)}←${toAr(max)} · ${toAr(cnt)} آية (${pct}%)`}</span>
+          <span>{toAr(total)}</span>
         </div>
       </div>
       <div className="arp-summary">
-        <div className="arp-sc"><span>من</span><strong>{dg(whole?1:min)}</strong></div>
-        <div className="arp-sc"><span>إلى</span><strong>{dg(whole?total:max)}</strong></div>
-        <div className="arp-sc"><span>المجموع</span><strong>{dg(cnt)} آية</strong></div>
+        <div className="arp-sc"><span>من</span><strong>{toAr(whole?1:min)}</strong></div>
+        <div className="arp-sc"><span>إلى</span><strong>{toAr(whole?total:max)}</strong></div>
+        <div className="arp-sc"><span>المجموع</span><strong>{toAr(cnt)} آية</strong></div>
       </div>
     </div>
   );
@@ -1153,7 +1139,7 @@ function TafsirPanel({ surahNum, ayahNum, autoLoad=false, onToggle }:{
   return (
     <div className="tf-panel">
       <div className="tf-header">
-        <span style={{display:"flex",alignItems:"center",gap:6}}><IcScroll s={14} c="var(--gold2)"/> التفسير الميسر — آية {dg(ayahNum)}</span>
+        <span style={{display:"flex",alignItems:"center",gap:6}}><IcScroll s={14} c="var(--gold2)"/> التفسير الميسر — آية {toAr(ayahNum)}</span>
         <button className="tf-close" onClick={()=>{ setOpen(false); onToggle?.(false); }} aria-label="إغلاق التفسير"><IcClose s={12} c="currentColor"/></button>
       </div>
       {loading
@@ -1165,7 +1151,7 @@ function TafsirPanel({ surahNum, ayahNum, autoLoad=false, onToggle }:{
           </div>
         : <p className="tf-text">{text}</p>
       }
-      <p className="tf-source">التفسير الميسر — نخبة من العلماء · <span className="fl">jsDelivr CDN</span></p>
+      <p className="tf-source">التفسير الميسر — نخبة من العلماء · jsDelivr CDN</p>
     </div>
   );
 }
@@ -1213,7 +1199,7 @@ function MaqasidPanel({ surahNum, surahName, ayahNum, ayahText }:{
   return (
     <div className="mq-panel">
       <div className="mq-hdr">
-        <span className="mq-title" style={{display:"flex",alignItems:"center",gap:6}}><IcCrescent s={14} c="var(--gold2)"/> مقاصد الآية {dg(ayahNum)}</span>
+        <span className="mq-title" style={{display:"flex",alignItems:"center",gap:6}}><IcCrescent s={14} c="var(--gold2)"/> مقاصد الآية {toAr(ayahNum)}</span>
         <button className="mq-x" onClick={()=>{ setOpen(false); reset(); }}><IcClose s={12} c="currentColor"/></button>
       </div>
 
@@ -1305,7 +1291,7 @@ function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick, s
       const a = ayahs.find(a=>a.surahNumber===ref.surah&&a.numberInSurah===ref.ayah);
       if(a){
         const name = a.surahName ?? surahName;
-        const text = `${a.text}\n\nسورة ${name}، الآية ${dg(ref.ayah)}`;
+        const text = `${a.text}\n\nسورة ${name}، الآية ${toAr(ref.ayah)}`;
         navigator.clipboard?.writeText(text).then(()=>setCopied(true)).catch(()=>{});
       }
     }
@@ -1316,7 +1302,7 @@ function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick, s
   const copySelectedAyah = async()=>{
     if(!selectedAyah||!selectedAyahText)return;
     const name = selectedAyahText.surahName ?? surahName;
-    const text = `${selectedAyahText.text}\n\nسورة ${name}، الآية ${dg(selectedAyah.ayah)}`;
+    const text = `${selectedAyahText.text}\n\nسورة ${name}، الآية ${toAr(selectedAyah.ayah)}`;
     try {
       if(navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
@@ -1371,16 +1357,16 @@ function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick, s
           {/* surah header */}
           <div className="mushaf-hdr">
             <div className="mushaf-hdr-title">
-              <span className="mushaf-bracket">﴿</span>
-              <span className="mushaf-sname">{isMultiSurah ? "نص الحزب" : `سُورَةُ ${surahName}`}</span>
               <span className="mushaf-bracket">﴾</span>
+              <span className="mushaf-sname">{isMultiSurah ? "نص الحزب" : `سُورَةُ ${surahName}`}</span>
+              <span className="mushaf-bracket">﴿</span>
             </div>
             <div className="mushaf-hdr-sub">
               {isMultiSurah
-                ? `${dg(ayahs.length)} آية عبر ${dg(grouped.length)} سور`
+                ? `${toAr(ayahs.length)} آية عبر ${toAr(grouped.length)} سور`
                 : firstAyah===lastAyah
-                ? `الآية الكريمة ${dg(firstAyah)}`
-                : `الآيات الكريمة ${dg(firstAyah)} – ${dg(lastAyah)}`}
+                ? `الآية الكريمة ${toAr(firstAyah)}`
+                : `الآيات الكريمة ${toAr(firstAyah)} – ${toAr(lastAyah)}`}
             </div>
           </div>
 
@@ -1412,13 +1398,13 @@ function QuranTextPanel({ ayahs, surahNum, surahName, activeAyah, onAyahClick, s
                           ref={isActive?activeRef:null}
                           className={`qayah${isActive?" playing":""}${isSelected?" selected":""}${hasNote?" has-note":""}`}
                           role="button" tabIndex={0}
-                          aria-label={`الآية ${dg(a.numberInSurah)}${isActive?' — قيد التلاوة':''}`}
+                          aria-label={`الآية ${toAr(a.numberInSurah)}${isActive?' — قيد التلاوة':''}`}
                           aria-current={isActive?'true':undefined}
                           onClick={()=>handleClick(ref)}
                           onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();handleClick(ref);}}}
                         >
                           {a.text}
-                          <span className="mushaf-anum">{String.fromCodePoint(0x06DD)}{dg(a.numberInSurah)}</span>
+                          <span className="mushaf-anum">{String.fromCodePoint(0x06DD)}{toAr(a.numberInSurah)}</span>
                           {hasNote&&<span className="note-dot" aria-hidden="true"/>}
                         </span>
                       );
@@ -1625,7 +1611,7 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
     const ref = timingRef(t);
     if(!ref)return "";
     const hasExplicitSurah = typeof t.surah === "number";
-    return hasExplicitSurah ? formatAyahRef(ref,true) : dg(ref.ayah);
+    return hasExplicitSurah ? formatAyahRef(ref,true) : toAr(ref.ayah);
   },[timingRef]);
 
   useEffect(()=>{
@@ -1741,9 +1727,9 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
       </div>
       <div className="sp-time"><span dir="ltr">{fmt(cur)}</span><span dir="ltr">{fmt(dur)}</span></div>
       <div className="sp-ctrl">
-        <button className="sp-skip" onClick={()=>skip(-10)}><IcArrowR s={12} c="currentColor"/> 10ث</button>
+        <button className="sp-skip" onClick={()=>skip(-10)}><IcArrowR s={12} c="currentColor"/> ١٠ث</button>
         <button className="sp-play" onClick={toggle} aria-label={playing?'إيقاف':'تشغيل'}>{playing?<IcPause s={18} c="#fff"/>:<IcPlay s={18} c="#fff"/>}</button>
-        <button className="sp-skip" onClick={()=>skip(10)}>10ث <IcArrowL s={12} c="currentColor"/></button>
+        <button className="sp-skip" onClick={()=>skip(10)}>١٠ث <IcArrowL s={12} c="currentColor"/></button>
       </div>
       <div className="sp-vol">
         <IcVolume s={18} c="var(--textD)"/>
@@ -1770,7 +1756,7 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
             {[2,3,5,7,10].map(n=>(
               <button key={n} className={`sp-rbtn${replayCount===n?' active':''}`}
                 onClick={()=>setReplayCount(n)}>
-                {dg(n)}×
+                {toAr(n)}×
               </button>
             ))}
             <input
@@ -1784,8 +1770,8 @@ function SyncPlayer({ url, filename, sizeKb, timings, onAyahChange, onSeekToAyah
             />
             <span className="sp-rdone">
               {playing
-                ? <>{dg(replayDone+1)}&nbsp;/&nbsp;{dg(replayCount)}</>
-                : <>{dg(replayCount)}× تكرار</>
+                ? <>{toAr(replayDone+1)}&nbsp;/&nbsp;{toAr(replayCount)}</>
+                : <>{toAr(replayCount)}× تكرار</>
               }
             </span>
           </div>
@@ -1979,8 +1965,8 @@ function HifdMode({ ayahs, surahName, surahNum }: {
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <span style={{fontSize:".72rem",color:"var(--textD)"}}>التقدم في الحفظ</span>
           <span style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:".78rem",fontWeight:700,color:"var(--gold2)"}}>آية {dg(idx+1)} / {dg(ayahs.length)}</span>
-            {memorizedCount > 0 && <span className="hifd-mem-badge"><IcCheck s={11} c="var(--teal3)"/> {dg(memorizedCount)} محفوظة</span>}
+            <span style={{fontSize:".78rem",fontWeight:700,color:"var(--gold2)"}}>آية {toAr(idx+1)} / {toAr(ayahs.length)}</span>
+            {memorizedCount > 0 && <span className="hifd-mem-badge"><IcCheck s={11} c="var(--teal3)"/> {toAr(memorizedCount)} محفوظة</span>}
           </span>
         </div>
         <div className="hifd-prog-bar">
@@ -1996,7 +1982,7 @@ function HifdMode({ ayahs, surahName, surahNum }: {
       <div className="hifd-ayah-card">
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <span style={{fontSize:".78rem",color:"var(--textD)",fontWeight:600}}>
-            {surahName} · آية {dg(currentAyah.numberInSurah)}
+            {surahName} · آية {toAr(currentAyah.numberInSurah)}
           </span>
           <button className="hifd-show-btn" onClick={() => setShowText(!showText)}>
             {showText ? <><IcEyeOff s={14} c="currentColor"/> أخفِ</> : <><IcEye s={14} c="currentColor"/> أظهر</>} النص
@@ -2004,7 +1990,7 @@ function HifdMode({ ayahs, surahName, surahNum }: {
         </div>
         <div className={`hifd-ayah-text${showText ? ' revealed' : ' blurred'}`}>
           {currentAyah.text}
-          <span className="qnum">{String.fromCodePoint(0x06DD)}{dg(currentAyah.numberInSurah)}</span>
+          <span className="qnum">{String.fromCodePoint(0x06DD)}{toAr(currentAyah.numberInSurah)}</span>
         </div>
         {!showText && !result && (
           <p style={{fontSize:".68rem",color:"var(--textDD)",textAlign:"center",marginTop:6}}>
@@ -2045,7 +2031,7 @@ function HifdMode({ ayahs, surahName, surahNum }: {
       {result && score !== null && (
         <div className="hifd-result">
           <div className={`hifd-score-badge${score>=80?' great':score>=50?' ok':' bad'}`}>
-            <span className="hifd-score-pct">{dg(score)}%</span>
+            <span className="hifd-score-pct">{toAr(score)}%</span>
             <span className="hifd-score-lbl">{score>=80?<><IcCheck s={14} c="var(--teal3)"/> ممتاز</>:score>=50?<><IcDiamond s={12} c="var(--gold2)"/> جيد</>:<><IcClose s={12} c="#d06060"/> راجع الآية</>}</span>
           </div>
           <div className="hifd-words">
@@ -2135,7 +2121,6 @@ export default function Home() {
   const [notes,setNotes]=useState<NotesMap>({});
   const [clickedNoteRef,setClickedNoteRef]=useState<AyahRef|null>(null);
   const [showHistory,setShowHistory]=useState(false);
-  const [showWird,setShowWird]=useState(false);
   const [justFinished,setJustFinished]=useState(false);
   const [isFullscreen,setIsFullscreen]=useState(false);
   const [readingMode,setReadingMode]=useState(false);
@@ -2451,9 +2436,6 @@ export default function Home() {
       <Stars show={dark}/>
       <IslamicPattern opacity={dark?0.032:0.05}/>
 
-      {/* PRAYER DASHBOARD — premium hero at the very top (scrolls away) */}
-      <PrayerBar/>
-
       {/* STICKY TOP NAV — header + step bar stick together */}
       <div className="top-nav">
         <header className="hdr">
@@ -2496,15 +2478,10 @@ export default function Home() {
                 </svg>
               </div>
             </div>
-            <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <button className="wird-btn" onClick={()=>setShowWird(true)} title="الوِرد والأذكار" aria-label="الوِرد والأذكار">
-                <IcBeads s={18} c="var(--gold2)"/>
-              </button>
-              <button className="hist-btn" onClick={()=>setShowHistory(true)} title="سجل القراءة" aria-label="سجل القراءة">
-                <IcHistory s={18} c="var(--gold)"/>
-                {completedHizbs.size>0&&<span className="hist-btn-badge">{dg(completedHizbs.size)}</span>}
-              </button>
-            </div>
+            <button className="hist-btn" onClick={()=>setShowHistory(true)} title="سجل القراءة" aria-label="سجل القراءة">
+              <IcHistory s={18} c="var(--gold)"/>
+              {completedHizbs.size>0&&<span className="hist-btn-badge">{toAr(completedHizbs.size)}</span>}
+            </button>
           </div>
         </header>
 
@@ -2520,9 +2497,6 @@ export default function Home() {
       {/* HISTORY PANEL */}
       <HistoryPanel show={showHistory} onClose={()=>setShowHistory(false)}
         history={readingHistory} ahzab={ahzab} surahs={surahs}/>
-
-      {/* WIRD & ADHKAR DRAWER */}
-      <DailyWird open={showWird} onClose={()=>setShowWird(false)}/>
 
       {/* WIZARD */}
       <main className="wizard">
@@ -2600,14 +2574,14 @@ export default function Home() {
                       role="option" aria-selected={selS?.id===s.id} tabIndex={0}
                       onClick={()=>setSelS(s)}
                       onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setSelS(s);}}}>
-                      <span className="si-n">{dg(s.id)}</span>
+                      <span className="si-n">{toAr(s.id)}</span>
                       <div className="si-body"><span className="si-ar">{s.name_arabic}</span>
-                        <span className="si-en"><bdi dir="ltr">{s.translated_name} · {dg(s.verses_count)} ayat</bdi></span></div>
+                        <span className="si-en">{s.translated_name} · {toAr(s.verses_count)} آية</span></div>
                       <div className="si-right">
                         {hpct!=null && (
                           hpct===100
                             ? <span className="si-hifd-done">✓ محفوظة</span>
-                            : <span className="si-hifd-pct">{dg(hpct)}%</span>
+                            : <span className="si-hifd-pct">{toAr(hpct)}٪</span>
                         )}
                         <span className={`si-bdg${s.revelation_place==="makkah"?" mk":" md"}`}>
                           {s.revelation_place==="makkah"?"مكية":"مدنية"}</span>
@@ -2637,7 +2611,7 @@ export default function Home() {
           <div className={`wcard slide-${dir}`}>
             <div className="wcard-hdr"><span className="wcard-icon"><IcBeads s={30} c="var(--gold)"/></span>
               <div><div className="wcard-title">نطاق الآيات</div>
-                <div className="wcard-sub">سورة <strong>{selS?.name_arabic}</strong> — {dg(selS?.verses_count??0)} آية</div></div>
+                <div className="wcard-sub">سورة <strong>{selS?.name_arabic}</strong> — {toAr(selS?.verses_count??0)} آية</div></div>
             </div>
             <div className="wcard-body">
               <AyahRangePicker total={selS?.verses_count??0} min={aMin} max={aMax} whole={whole}
@@ -2659,8 +2633,8 @@ export default function Home() {
                 <div className="wcard-title">الاستماع والتدبر</div>
                 <div className="wcard-sub">
                   {selMode==='hizb'&&selHizb
-                    ? <>حزب {dg(selHizb.hizb_num)} · جزء {dg(selHizb.juz_num)} · {RECITERS_META[selR!]?.nameAr}</>
-                    : <>{selS?.name_arabic} · {RECITERS_META[selR!]?.nameAr} · آية {dg(dMin)}–{dg(dMax)}</>
+                    ? <>حزب {toAr(selHizb.hizb_num)} · جزء {toAr(selHizb.juz_num)} · {RECITERS_META[selR!]?.nameAr}</>
+                    : <>{selS?.name_arabic} · {RECITERS_META[selR!]?.nameAr} · آية {toAr(dMin)}–{toAr(dMax)}</>
                   }
                 </div>
               </div>
@@ -2705,7 +2679,7 @@ export default function Home() {
                       : textError
                       ? <div className="data-error data-error-block" role="alert">
                           <div className="data-error-title">تعذّر تحميل النص القرآني</div>
-                          <div className="data-error-sub">خدمة <bdi dir="ltr">alquran.cloud</bdi> غير متاحة حالياً — تحقق من الاتصال</div>
+                          <div className="data-error-sub">خدمة alquran.cloud غير متاحة حالياً — تحقق من الاتصال</div>
                           <button className="btn-retry" onClick={()=>lastTextFetchRef.current?.()}>
                             <IcReset s={14} c="currentColor"/> إعادة المحاولة
                           </button>
@@ -2775,13 +2749,13 @@ export default function Home() {
                   <div className="qs-fs-bar-inner">
                     <div className="qs-fs-meta">
                       <span className="qs-fs-title">
-                        {selMode==='hizb'&&selHizb ? `حزب ${dg(selHizb.hizb_num)}` : (selS?.name_arabic??'—')}
+                        {selMode==='hizb'&&selHizb ? `حزب ${toAr(selHizb.hizb_num)}` : (selS?.name_arabic??'—')}
                       </span>
                       {activeAyah&&<span className="qs-fs-ayah">{formatAyahRef(activeAyah,true)}</span>}
                     </div>
                     <div className="qs-fs-center">
                       <div className="qs-fs-btns">
-                        <button className="qs-fs-skip" onClick={()=>fpControlsRef.current?.skip(-10)} title="رجوع 10 ثانية">
+                        <button className="qs-fs-skip" onClick={()=>fpControlsRef.current?.skip(-10)} title="رجوع ١٠ ثانية">
                           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                             <polyline points="15 18 9 12 15 6"/><line x1="9" y1="6" x2="9" y2="18"/>
                           </svg>
@@ -2789,7 +2763,7 @@ export default function Home() {
                         <button className="qs-fs-play" onClick={()=>fpControlsRef.current?.toggle()}>
                           {fpPlaying ? <IcPause s={22} c="#fff"/> : <IcPlay s={22} c="#fff"/>}
                         </button>
-                        <button className="qs-fs-skip" onClick={()=>fpControlsRef.current?.skip(10)} title="تقديم 10 ثانية">
+                        <button className="qs-fs-skip" onClick={()=>fpControlsRef.current?.skip(10)} title="تقديم ١٠ ثانية">
                           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                             <line x1="15" y1="6" x2="15" y2="18"/><polyline points="9 18 15 12 9 6"/>
                           </svg>
@@ -2930,7 +2904,7 @@ export default function Home() {
                   <div className="fp-text">
                     <span className="fp-title">
                       {selMode==='hizb'&&selHizb
-                        ? `حزب ${dg(selHizb.hizb_num)}`
+                        ? `حزب ${toAr(selHizb.hizb_num)}`
                         : (selS?.name_arabic??'—')}
                     </span>
                     {activeAyah&&<span className="fp-ayah">{formatAyahRef(activeAyah,true)}</span>}
@@ -2974,7 +2948,7 @@ export default function Home() {
                       <button key={n} className={`fp-rcbtn${fpReplayCount===n?' active':''}`}
                         aria-label={`${n} مرات`}
                         onClick={()=>{setFpReplayCount(n);setFpTikrarOpen(false);}}>
-                        {dg(n)}×
+                        {toAr(n)}×
                       </button>
                     ))}
                     <input type="number" min={1} max={99} className="fp-rcinput" autoFocus
@@ -2986,7 +2960,7 @@ export default function Home() {
                 ) : (
                   <button className="fp-rcbtn active" onClick={()=>setFpTikrarOpen(true)}
                     aria-label={`التكرار: ${fpReplayCount} مرات لكل ${fpReplayScope==='ayah'?'آية':'مقطع'} — اضغط للتغيير`}>
-                    {dg(fpReplayCount)}×{fpReplayScope==='ayah'?' آية':''}
+                    {toAr(fpReplayCount)}×{fpReplayScope==='ayah'?' آية':''}
                   </button>
                 ))}
                 <div className="fp-right">
@@ -3018,7 +2992,7 @@ export default function Home() {
       {/* FOOTER */}
       <footer className="footer">
         <div className="footer-orn">✦ ✦ ✦</div>
-        <p className="footer-copy"><bdi dir="ltr">© {new Date().getFullYear()} <strong>Noureddine Achibane</strong></bdi> — جميع الحقوق محفوظة</p>
+        <p className="footer-copy">© {new Date().getFullYear()} <strong>Noureddine Achibane</strong> — جميع الحقوق محفوظة</p>
         <p className="footer-sub">
           النص القرآني من <span className="fl">alquran.cloud</span> ·
           الصوت من <span className="fl">everyayah.com</span> ·
@@ -3219,9 +3193,9 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 /* SURAH SEARCH */
 .search-wrap{position:relative;margin-bottom:12px;display:flex;align-items:center}
 .si-icon{position:absolute;inset-inline-start:12px;font-size:.85rem;pointer-events:none;opacity:.5}
-.srch{width:100%;background:var(--input-bg);border:1px solid var(--border);border-radius:11px;padding-block:11px;padding-inline-start:38px;padding-inline-end:36px;color:var(--text);font-family:var(--ff);font-size:.92rem;outline:none;direction:rtl;transition:border-color .2s;letter-spacing:.01em;line-height:1.5}
+.srch{width:100%;background:var(--input-bg);border:1px solid var(--border);border-radius:11px;padding:11px 38px 11px 36px;color:var(--text);font-family:var(--ff);font-size:.92rem;outline:none;direction:rtl;transition:border-color .2s;letter-spacing:.01em;line-height:1.5}
 .srch:focus{border-color:var(--border2);box-shadow:0 0 0 3px rgba(201,168,76,.07)}.srch::placeholder{color:var(--textDD)}
-.srch-x{position:absolute;inset-inline-end:10px;background:none;border:none;color:var(--textD);cursor:pointer;font-size:.75rem;padding:4px;transition:color .2s}
+.srch-x{position:absolute;left:10px;background:none;border:none;color:var(--textD);cursor:pointer;font-size:.75rem;padding:4px;transition:color .2s}
 .srch-x:hover{color:var(--text)}
 .sg{display:flex;flex-direction:column;gap:4px;max-height:400px;overflow-y:auto}
 .si{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:all .16s;animation:fadeUp .2s calc(var(--idx,0)*.015s) both}
@@ -3249,12 +3223,12 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .arp-dash{color:var(--textD);font-size:1rem;text-align:center;padding-bottom:10px}
 .arp-field label{display:block;font-size:.7rem;color:var(--textD);margin-bottom:5px}
 .arp-sw{position:relative}
-.arp-sel{width:100%;background:var(--input-bg);border:1px solid var(--border);border-radius:10px;padding-block:11px;padding-inline-start:14px;padding-inline-end:30px;color:var(--text);font-family:var(--ff);font-size:.92rem;appearance:none;-webkit-appearance:none;outline:none;cursor:pointer;transition:border-color .2s;direction:rtl;letter-spacing:.01em}
+.arp-sel{width:100%;background:var(--input-bg);border:1px solid var(--border);border-radius:10px;padding:11px 14px 11px 30px;color:var(--text);font-family:var(--ff);font-size:.92rem;appearance:none;-webkit-appearance:none;outline:none;cursor:pointer;transition:border-color .2s;direction:rtl;letter-spacing:.01em}
 .arp-sel:focus{border-color:var(--border2);box-shadow:0 0 0 3px rgba(201,168,76,.07)}
-.arp-arr{position:absolute;inset-inline-end:10px;top:50%;transform:translateY(-50%);color:var(--textD);font-size:.75rem;pointer-events:none}
+.arp-arr{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--textD);font-size:.75rem;pointer-events:none}
 .arp-bar-wrap{display:flex;flex-direction:column;gap:5px}
 .arp-bar{height:34px;background:var(--bg4);border-radius:8px;border:1px solid var(--border);position:relative;overflow:hidden}
-.arp-fill{position:absolute;top:0;bottom:0;background:linear-gradient(90deg,rgba(201,168,76,.18),rgba(201,168,76,.38));border-radius:6px;transition:all .4s cubic-bezier(.22,.68,0,1.2);border-inline-start:2px solid rgba(201,168,76,.55)}
+.arp-fill{position:absolute;top:0;bottom:0;background:linear-gradient(90deg,rgba(201,168,76,.18),rgba(201,168,76,.38));border-radius:6px;transition:all .4s cubic-bezier(.22,.68,0,1.2);border-right:2px solid rgba(201,168,76,.55)}
 .arp-tick{position:absolute;top:22%;bottom:22%;width:1px;background:var(--border);transform:translateX(-50%);transition:background .3s}
 .arp-tick.in{background:rgba(201,168,76,.55)}
 .arp-blabels{display:flex;justify-content:space-between;font-size:.63rem;color:var(--textD);padding:0 2px}
@@ -3488,7 +3462,7 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .mushaf-basmala{font-family:var(--fq);font-size:1.55rem;text-align:center;direction:rtl;color:var(--text);padding:12px 0 16px;display:block;border-bottom:1px solid var(--border);margin-bottom:12px;letter-spacing:.02em}
 .light .mushaf-basmala{color:#1e1608}
 /* quran text */
-.mushaf-text-wrap{overflow-y:auto;max-height:min(560px,calc(100dvh - 300px));padding-inline-end:2px;padding-bottom:var(--player-clearance);overscroll-behavior:contain}
+.mushaf-text-wrap{overflow-y:auto;max-height:min(560px,calc(100dvh - 300px));padding-left:2px;padding-bottom:var(--player-clearance);overscroll-behavior:contain}
 .mushaf-text{font-family:var(--fq);font-size:1.7rem;line-height:3.15;text-align:justify;text-align-last:right;direction:rtl;color:var(--text);word-break:break-word;word-spacing:.06em;padding:4px 0}
 .light .mushaf-text{color:#1a1208}
 /* ayah verse inline spans */
@@ -3501,7 +3475,7 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 @keyframes aLight{from{background:rgba(201,168,76,.55)}to{background:rgba(201,168,76,.22)}}
 /* ayah end marker */
 .mushaf-anum{display:inline-block;font-family:var(--ff);font-size:.72rem;color:rgba(201,168,76,.9);vertical-align:middle;margin:0 3px;direction:ltr}
-.qnum{font-family:var(--ff);font-size:.74rem;color:var(--gold);vertical-align:middle;margin-inline-start:2px;opacity:.75}
+.qnum{font-family:var(--ff);font-size:.74rem;color:var(--gold);vertical-align:middle;margin-right:2px;opacity:.75}
 
 /* AYAH DRAWER */
 .ayah-drawer{background:var(--bg3);border-top:1px solid var(--border);border-radius:0 0 var(--r8) var(--r8);overflow:hidden;animation:drawerIn .25s ease}
@@ -3526,7 +3500,7 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 /* NOTE EDITOR (inline in drawer) */
 .note-editor{width:100%;display:flex;flex-direction:column;gap:7px;padding:2px 0}
 .note-editor-header{display:flex;align-items:center;gap:6px;font-size:.76rem;color:var(--gold2);font-weight:600;letter-spacing:.02em}
-.note-textarea{width:100%;background:rgba(3,6,10,.6);border:1px solid rgba(201,168,76,.28);border-radius:10px;padding:10px 13px;color:var(--text);font-family:var(--ff);font-size:.9rem;line-height:1.85;resize:vertical;min-height:72px;direction:rtl;text-align:start;transition:border-color .2s,background .2s;outline:none}
+.note-textarea{width:100%;background:rgba(3,6,10,.6);border:1px solid rgba(201,168,76,.28);border-radius:10px;padding:10px 13px;color:var(--text);font-family:var(--ff);font-size:.9rem;line-height:1.85;resize:vertical;min-height:72px;direction:rtl;text-align:right;transition:border-color .2s,background .2s;outline:none}
 .note-textarea:focus{border-color:rgba(201,168,76,.52);background:rgba(3,6,10,.8)}
 .note-textarea::placeholder{color:var(--textDD);font-size:.82rem}
 .note-editor-btns{display:flex;gap:7px;flex-wrap:wrap}
@@ -3539,7 +3513,7 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .note-delete-btn:hover{background:rgba(180,60,60,.2);border-color:rgba(180,60,60,.4)}
 
 /* NOTE TOAST — iOS notification style */
-.note-toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:9500;display:flex;align-items:flex-start;gap:10px;min-width:260px;max-width:min(460px,88vw);padding:12px 18px 14px;background:rgba(5,9,16,.88);backdrop-filter:blur(36px);-webkit-backdrop-filter:blur(36px);border:1px solid rgba(201,168,76,.32);border-radius:22px;box-shadow:0 12px 48px rgba(0,0,0,.7),0 3px 14px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.07);pointer-events:none;direction:rtl;text-align:start}
+.note-toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:9500;display:flex;align-items:flex-start;gap:10px;min-width:260px;max-width:min(460px,88vw);padding:12px 18px 14px;background:rgba(5,9,16,.88);backdrop-filter:blur(36px);-webkit-backdrop-filter:blur(36px);border:1px solid rgba(201,168,76,.32);border-radius:22px;box-shadow:0 12px 48px rgba(0,0,0,.7),0 3px 14px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.07);pointer-events:none;direction:rtl;text-align:right}
 .note-toast::before{content:'';position:absolute;inset:0;border-radius:22px;background:radial-gradient(ellipse at 20% 0%,rgba(201,168,76,.1) 0%,transparent 60%);pointer-events:none}
 .nt-in{animation:ntIn .44s cubic-bezier(.34,1.46,.64,1) both}
 .nt-out{animation:ntOut .32s cubic-bezier(.4,0,1,1) both}
@@ -3646,12 +3620,12 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .sp-toggle input{display:none}
 .sp-tog-track{width:30px;height:16px;background:var(--bg5);border-radius:8px;position:relative;transition:background .2s;border:1px solid var(--border);flex-shrink:0}
 .sp-toggle input:checked~.sp-tog-track{background:rgba(42,157,143,.35);border-color:var(--teal)}
-.sp-tog-thumb{position:absolute;top:2px;inset-inline-start:2px;width:10px;height:10px;border-radius:50%;background:var(--textD);transition:all .2s}
-.sp-toggle input:checked~.sp-tog-track .sp-tog-thumb{inset-inline-start:16px;background:var(--teal3)}
+.sp-tog-thumb{position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:var(--textD);transition:all .2s}
+.sp-toggle input:checked~.sp-tog-track .sp-tog-thumb{left:16px;background:var(--teal3)}
 .sp-rcount{width:40px;background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:2px 4px;font-size:.78rem;font-family:var(--ff);color:var(--text);text-align:center;outline:none;-moz-appearance:textfield;transition:border-color .15s}
 .sp-rcount:focus{border-color:var(--gold)}
 .sp-rcount::-webkit-inner-spin-button,.sp-rcount::-webkit-outer-spin-button{-webkit-appearance:none}
-.sp-rdone{font-size:.68rem;color:var(--gold);background:rgba(201,168,76,.14);padding:3px 10px;border-radius:12px;font-weight:700;direction:rtl;margin-inline-start:auto;margin-inline-end:6px;border:1px solid rgba(201,168,76,.25);white-space:nowrap}
+.sp-rdone{font-size:.68rem;color:var(--gold);background:rgba(201,168,76,.14);padding:3px 10px;border-radius:12px;font-weight:700;direction:rtl;margin-right:auto;margin-left:6px;border:1px solid rgba(201,168,76,.25);white-space:nowrap}
 .sp-rbtns{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:6px}
 .sp-rbtn{padding:2px 8px;font-size:.72rem;font-family:var(--ff);border-radius:6px;border:1px solid var(--border);background:var(--bg4);color:var(--textD);cursor:pointer;transition:all .15s}
 .sp-rbtn:hover{border-color:var(--gold);color:var(--gold)}
@@ -3677,7 +3651,7 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .footer{border-top:1px solid var(--border);padding:30px 24px 160px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:9px;background:linear-gradient(0deg,rgba(201,168,76,.04),transparent)}
 .footer-orn{color:var(--gold);opacity:.45;letter-spacing:9px;font-size:.82rem}
 .footer-copy{font-size:.8rem;color:var(--textD);letter-spacing:.01em}.footer-copy strong{color:var(--gold2)}
-.footer-sub{font-size:.68rem;color:var(--textDD);letter-spacing:.01em}.fl{color:var(--teal3);direction:ltr;unicode-bidi:isolate}
+.footer-sub{font-size:.68rem;color:var(--textDD);letter-spacing:.01em}.fl{color:var(--teal3)}
 .footer-bismillah{font-family:var(--fq);font-size:1.18rem;color:var(--gold);opacity:.52;margin-top:5px;letter-spacing:.02em}
 
 /* ══════════════════════════════════════════════════════════════
@@ -3985,7 +3959,7 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 /* ─── HISTORY BUTTON (header) ─── */
 .hist-btn{position:relative;background:var(--bg3);border:1px solid var(--border);border-radius:50%;width:40px;height:40px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .25s;flex-shrink:0}
 .hist-btn:hover{border-color:var(--gold);transform:scale(1.08)}
-.hist-btn-badge{position:absolute;top:-4px;inset-inline-end:-4px;min-width:16px;height:16px;border-radius:8px;background:var(--gold);color:#0c1020;font-size:.58rem;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;font-family:var(--ff)}
+.hist-btn-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;border-radius:8px;background:var(--gold);color:#0c1020;font-size:.58rem;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;font-family:var(--ff)}
 
 /* ─── HISTORY PANEL ─── */
 .hist-overlay{position:fixed;inset:0;z-index:8000;background:rgba(0,0,0,0);pointer-events:none;transition:background .3s}
@@ -4047,7 +4021,7 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 /* ─── WCARD FINISH AREA (bottom of Quran page — always visible) ─── */
 .wcard-finish-area{margin:24px 0 8px;padding:0 2px}
 .wcard-finish-hint{display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 18px;border:1px dashed var(--border);border-radius:12px;font-size:.78rem;color:var(--textDD);font-family:var(--ff)}
-.wcard-finish-btn{width:100%;display:flex;align-items:center;gap:14px;padding:16px 20px;border-radius:16px;border:1px solid rgba(201,168,76,.45);background:linear-gradient(135deg,rgba(201,168,76,.14) 0%,rgba(42,157,143,.06) 100%);cursor:pointer;transition:all .32s;text-align:start;position:relative;overflow:hidden}
+.wcard-finish-btn{width:100%;display:flex;align-items:center;gap:14px;padding:16px 20px;border-radius:16px;border:1px solid rgba(201,168,76,.45);background:linear-gradient(135deg,rgba(201,168,76,.14) 0%,rgba(42,157,143,.06) 100%);cursor:pointer;transition:all .32s;text-align:right;position:relative;overflow:hidden}
 .wcard-finish-btn::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(201,168,76,.1),transparent);opacity:0;transition:opacity .32s}
 .wcard-finish-btn:not(.wcard-finish-done):hover::after{opacity:1}
 .wcard-finish-btn:not(.wcard-finish-done):hover{border-color:rgba(201,168,76,.75);box-shadow:0 0 32px rgba(201,168,76,.22),0 6px 24px rgba(0,0,0,.18);transform:translateY(-2px)}
@@ -4077,8 +4051,8 @@ svg.pattern-bg,svg[style*="fixed"]{color:var(--pat-color)}
 .hpicker-juz-btn{position:relative}
 .hcard-done{border-color:rgba(42,157,143,.35)!important;background:rgba(42,157,143,.06)!important}
 .hcard-sugg{border-color:rgba(201,168,76,.5)!important;box-shadow:0 0 16px rgba(201,168,76,.12)!important}
-.hcard-done-badge{font-size:.64rem;color:var(--teal3);background:rgba(42,157,143,.12);border:1px solid rgba(42,157,143,.2);border-radius:8px;padding:2px 7px;margin-inline-start:auto;display:flex;align-items:center;gap:3px}
-.hcard-sugg-badge{font-size:.64rem;color:var(--gold);background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.2);border-radius:8px;padding:2px 7px;margin-inline-start:auto;animation:pulse 2s infinite}
+.hcard-done-badge{font-size:.64rem;color:var(--teal3);background:rgba(42,157,143,.12);border:1px solid rgba(42,157,143,.2);border-radius:8px;padding:2px 7px;margin-right:auto;display:flex;align-items:center;gap:3px}
+.hcard-sugg-badge{font-size:.64rem;color:var(--gold);background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.2);border-radius:8px;padding:2px 7px;margin-right:auto;animation:pulse 2s infinite}
 `}</style>
     </div>
   );
